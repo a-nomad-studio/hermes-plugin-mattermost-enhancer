@@ -40,14 +40,14 @@
 #     评论→正文合并 / 幽灵代码围栏 / stream fallback 丢失 reply_to
 #
 #   版本感知：
-#     最后验证: 2026-09-16
-#     Hermes 版本: v0.21.3（HEAD=origin/main=3c3ab69abb）
+#     最后验证: 2026-09-27
+#     Hermes 版本: v2026.9.24（installed=41755854ad；origin/main=0065bba6c3）
 #     验证方式: A+B+C 三重验证（上游等价实现 / 完整 old_string / 当前源码唯一匹配）
 #     E-P2 与 E-P4 均未被上游等价实现，两个完整 old_string 在最新版源码各唯一匹配一次；
 #     bundled Mattermost adapter 仅发生 YAML bridge、连接检测、standalone sender 与
 #     multi-image 返回值重构，插件覆写的继承与契约签名仍兼容。
 #
-#   已验证（v0.21.3 / origin:main=3c3ab69abb）：
+#   已验证（v2026.9.24 / origin:main=0065bba6c3）：
 #     E-P2. run_inbound.py (Clarify Session)  — 未合入，old_string 唯一匹配
 #     E-P3. run_inbound.py (Clarify 并发)     — 上游统一拦截架构覆盖，维持移除
 #     E-P4. run_startup.py (Session 串台去重) — 未合入，old_string 唯一匹配
