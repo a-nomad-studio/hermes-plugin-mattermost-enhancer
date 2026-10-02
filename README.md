@@ -301,7 +301,7 @@ Open **Product menu → Integrations → Slash Commands** and add the commands y
 
 > 🔧 If Mattermost and Hermes are on the same machine (Docker deployment), use `http://host.docker.internal:18065/mm-command`
 
-Set each command's request method to **POST**. After saving, copy the token Mattermost displays and map it to that command in `MATTERMOST_SLASH_COMMAND_TOKENS`. For example, if you only register `/reasoning`, configure at least `reasoning=your-copied-token`. If `/model`, `/new`, `/compress`, or `/compact` were already registered, add each one's own token too; otherwise those existing commands will be rejected for missing credentials.
+Set each command's request method to **POST**. After saving, copy the token Mattermost displays and map it to that command in `MATTERMOST_SLASH_COMMAND_TOKENS`. The new version validates the token before dispatching any command through the shared `/mm-command` endpoint: **only commands you actually register need an entry, but every registered command must have its own token**. For example, if you only register `/reasoning`, configure at least `reasoning=your-copied-token`; if you also register `/model`, `/new`, `/compress`, or `/compact`, configure each command's own token too.
 
 ### Step 3: Configure Environment Variables
 
@@ -327,8 +327,16 @@ MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
 # ═══ Slash command authentication (required) ═══
 # Copy the Token shown for each custom Slash Command in Mattermost.
-# Format: command=token; separate commands with semicolons. Never commit real tokens.
-MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token
+# Format: command=token; separate commands with semicolons.
+# This example assumes all five commands are registered; keep only the commands you use.
+# Never commit real tokens.
+MATTERMOST_SLASH_COMMAND_TOKENS="model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token"
+```
+
+If you only register `/reasoning`, the minimal configuration is:
+
+```dotenv
+MATTERMOST_SLASH_COMMAND_TOKENS="reasoning=token-copied-from-mattermost"
 ```
 
 > ⚠️ If you're like most self-hosting users with Mattermost running in Docker, **`MATTERMOST_CALLBACK_URL` must be set**. Without it, the Docker container can't reach Hermes on the host machine.
@@ -337,7 +345,7 @@ MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;
 >
 > 🔐 Each Slash Command has its own token. The plugin checks it against the command name, so a `/reasoning` token cannot invoke `/new` or another command.
 
-Mattermost sends the matching credential in the Authorization header. Set each variable entry to the token for its trigger word; do not share these tokens in chat, screenshots, or source control.
+Mattermost normally sends the credential in the Slash Command request's `token` form field; the plugin also accepts `Authorization: Token TOKEN_VALUE`. Set each variable entry to the token for its trigger word; do not share these tokens in chat, screenshots, or source control.
 
 ### Step 4: Run Companion Script + Restart
 

@@ -1,9 +1,9 @@
 # Mattermost Interactive Message & Slash Command API 契约
 
 > 关联：Hermes Platform Plugin `mattermost-enhancer`
-> 版本：v0.21.3 对齐 | 最后更新：2026-09-16
+> 版本：v0.21.3 对齐 | 最后更新：2026-10-02
 
-## 1. Slash Command POST（`/model` / `/new`）
+## 1. Slash Command POST（`/model` / `/new` / `/reasoning` / `/compress` / `/compact`）
 
 Mattermost System Console 配置的自定义 Slash 指令 → 插件 callback server。
 
@@ -20,11 +20,22 @@ channel_id=<channel_id>
 channel_name=<channel_name>
 user_id=<user_id>
 user_name=<user_name>
-command=/model               # 或 /new
+command=/model               # 或 /new、/reasoning、/compress、/compact
 text=                        # 指令后的可选文本
 trigger_id=<trigger_id>
 root_id=<root_post_id>       # ← 关键字段！Thread 中 = root post ID，Channel 顶层 = ""
 ```
+
+### 1.1.1 Token 鉴权
+
+新版本会在分发 Slash 指令前校验 Token。插件从 `MATTERMOST_SLASH_COMMAND_TOKENS` 中按触发词查找期望值：
+
+```dotenv
+# 只配置实际注册的指令；每条已注册指令使用自己的 Mattermost Token。
+MATTERMOST_SLASH_COMMAND_TOKENS="model=MODEL_TOKEN;new=NEW_TOKEN;reasoning=REASONING_TOKEN;compress=COMPRESS_TOKEN;compact=COMPACT_TOKEN"
+```
+
+Mattermost 通常通过请求体的 `token` 字段发送凭据；插件也兼容 `Authorization: Token TOKEN_VALUE` 请求头。缺少映射、缺少请求 Token 或 Token 不匹配时，返回 `Unauthorized`，不会调度任何指令处理逻辑。
 
 **root_id 字段说明（MM 原生支持）：**
 

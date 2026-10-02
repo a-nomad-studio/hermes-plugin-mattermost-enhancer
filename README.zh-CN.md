@@ -302,7 +302,7 @@ hermes plugins install colin-chang/hermes-plugin-mattermost-enhancer --enable
 
 > 🔧 如果 Mattermost 和 Hermes 在同一台机器上（Docker 部署），用 `http://host.docker.internal:18065/mm-command`
 
-每条指令都选择 **POST**，保存后复制 Mattermost 显示的 Token，按名称放进 `MATTERMOST_SLASH_COMMAND_TOKENS`。例如只注册 `/reasoning` 时，至少配置 `reasoning=你复制的Token`。如果之前已有 `/model`、`/new`、`/compress` 或 `/compact`，也要把它们各自的 Token 一并配置，否则这些旧命令会因缺少凭据而被拒绝。
+每条指令都选择 **POST**，保存后复制 Mattermost 显示的 Token，按名称放进 `MATTERMOST_SLASH_COMMAND_TOKENS`。新版本会在共享的 `/mm-command` 入口分发指令前强制校验 Token：**只有实际注册的指令需要配置，但每一条已注册的指令都必须配置自己的 Token**。例如只注册 `/reasoning` 时，至少配置 `reasoning=你复制的Token`；如果同时注册了 `/model`、`/new`、`/compress` 或 `/compact`，也必须分别配置它们的 Token。
 
 ### 第 3 步：配置环境变量
 
@@ -327,8 +327,16 @@ MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
 # ═══ Slash 指令鉴权（必填）═══
 # 在每条 Mattermost 自定义 Slash 指令的设置页复制它自己的 Token。
-# 格式：指令名称=Token；多条指令用英文分号分隔。不要提交真实 Token 到代码仓库。
-MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token
+# 格式：指令名称=Token；多条指令用英文分号分隔。
+# 下面示例假设五条指令都已注册；只保留实际注册的指令即可。
+# 不要提交真实 Token 到代码仓库。
+MATTERMOST_SLASH_COMMAND_TOKENS="model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token"
+```
+
+如果只注册 `/reasoning`，最小配置为：
+
+```dotenv
+MATTERMOST_SLASH_COMMAND_TOKENS="reasoning=从Mattermost复制的Token"
 ```
 
 > ⚠️ 如果你像大多数自部署用户一样，Mattermost 跑在 Docker 容器里，**`MATTERMOST_CALLBACK_URL` 必须填**，否则容器里的 Mattermost 无法回调到宿主机的 Hermes。
@@ -337,7 +345,7 @@ MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;
 
 > 🔐 每条 Slash 指令都有自己的 Token；插件会按指令名称分别校验，不能用 `/reasoning` 的 Token 调用 `/new` 等其他命令。
 
-Mattermost 会在请求头的 Authorization 字段中发送该指令对应的 Token。每条命令都要在上面的环境变量中填写与其触发词对应的 Token；不要把这些 Token 发到聊天、代码仓库或截图中。
+Mattermost 通常会在 Slash Command 请求的 `token` 表单字段中发送凭据；插件也兼容 `Authorization: Token TOKEN_VALUE` 请求头。每条命令都要在上面的环境变量中填写与其触发词对应的 Token；不要把这些 Token 发到聊天、代码仓库或截图中。
 
 ### 第 4 步：运行配套脚本 + 重启
 
