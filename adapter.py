@@ -41,13 +41,31 @@ from tools.approval import resolve_gateway_approval
 try:
     from hermes_plugins.platforms_mattermost.adapter import MattermostAdapter
 except ImportError:
+    # Plugin Doctor loads a temporary copy of the enhancer without copying the
+    # bundled platform plugins. Resolve the live Hermes checkout through
+    # hermes_cli first, then retain the historical relative-path fallback for
+    # direct pytest/import use.
     import importlib.util
     import sys
     from pathlib import Path as _Path
 
-    _bundled_mm = _Path(__file__).parent.parent.parent / "hermes-agent" / "plugins" / "platforms" / "mattermost"
-    _init = _bundled_mm / "__init__.py"
-    if _init.exists():
+    _bundled_candidates = []
+    try:
+        import hermes_cli as _hermes_cli
+        _hermes_root = _Path(_hermes_cli.__file__).resolve().parents[1]
+        _bundled_candidates.append(_hermes_root / "plugins" / "platforms" / "mattermost")
+    except Exception:
+        pass
+    _bundled_candidates.append(
+        _Path(__file__).resolve().parent.parent.parent
+        / "hermes-agent" / "plugins" / "platforms" / "mattermost"
+    )
+    _bundled_mm = next(
+        (candidate for candidate in _bundled_candidates if (candidate / "__init__.py").exists()),
+        None,
+    )
+    _init = _bundled_mm / "__init__.py" if _bundled_mm else None
+    if _init and _init.exists():
         import types as _types
         if "hermes_plugins" not in sys.modules:
             _ns = _types.ModuleType("hermes_plugins")
@@ -64,9 +82,9 @@ except ImportError:
             _spec.loader.exec_module(_mod)
             from hermes_plugins.platforms_mattermost.adapter import MattermostAdapter  # noqa: F811
         else:
-            raise
+            raise ImportError("Unable to load bundled Mattermost adapter")
     else:
-        raise
+        raise ImportError("Bundled Mattermost adapter checkout is unavailable")
 
 from .cards import (
     render_model_selector_card,
