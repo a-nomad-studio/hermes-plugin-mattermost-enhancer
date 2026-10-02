@@ -67,7 +67,23 @@ Thread A uses Model X for coding; Thread B uses Model Y for chatting. No interfe
 
 ---
 
-### 🔄 3. Reset Conversation (`/new` Command)
+### 🧠 3. Adjust Reasoning Effort (`/reasoning` Command)
+
+**Scenario:** Simple questions do not need a long reasoning pass; complex ones may benefit from spending more time thinking.
+
+**Before:** Mattermost intercepts messages beginning with `/`, so Hermes never receives `/reasoning` and cannot change the current conversation's reasoning effort.
+
+**Now:** Type `/reasoning high`, `/reasoning low`, or `/reasoning none` to change only the current Mattermost conversation; other Threads remain unchanged. Type `/reasoning` to see the current setting, or `/reasoning reset` to clear the session override and inherit the configured setting again.
+
+Available levels: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. A model may clamp a requested level to one it supports.
+
+> ⚠️ `/reasoning high --global` changes the global default; omit `--global` for a temporary per-conversation change.
+
+> 📸 `[Screenshot placeholder]` — A Mattermost Thread showing `/reasoning high` and confirmation that the current conversation was updated
+
+---
+
+### 🔄 4. Reset Conversation (`/new` Command)
 
 **Scenario:** The conversation has gone off track and the AI keeps fixating on an earlier topic. You want a fresh start.
 
@@ -84,7 +100,7 @@ After confirming:
 
 ---
 
-### 🗜️ 4. Compress Conversation Context (`/compress` / `/compact`)
+### 🗜️ 5. Compress Conversation Context (`/compress` / `/compact`)
 
 **Scenario:** A Thread has been active for a long time. Earlier discussion, tool results, and intermediate work accumulate, leaving less useful context room for the model and affecting speed, cost, and response consistency.
 
@@ -107,7 +123,7 @@ Hermes performs the compression through its internal session mechanism and posts
 
 ---
 
-### ⌨️ 5. Typing Indicator
+### ⌨️ 6. Typing Indicator
 
 **Scenario:** You're waiting for Hermes to reply in a Thread and want to know it's thinking.
 
@@ -119,7 +135,7 @@ Hermes performs the compression through its internal session mechanism and posts
 
 ---
 
-### ❓ 6. AI Asks You Questions (Interactive Cards)
+### ❓ 7. AI Asks You Questions (Interactive Cards)
 
 **Scenario:** Hermes hits a decision point during a complex task — "This file has two processing approaches: A is fast but rough, B is slow but precise. Which one?" Or an open-ended question like "What approach would you prefer?"
 
@@ -137,7 +153,7 @@ Everything happens inside Mattermost — no window switching, no commands to mem
 
 ---
 
-### 🏷️ 7. Reply Footer (Model & Context)
+### 🏷️ 8. Reply Footer (Model & Context)
 
 **Scenario:** You have multiple Threads open, each potentially using a different AI model. Mid-conversation you think: "Wait, which model is this Thread using?"
 
@@ -273,16 +289,19 @@ hermes plugins install colin-chang/hermes-plugin-mattermost-enhancer --enable
 
 ### Step 2: Register Mattermost Slash Commands
 
-In **Mattermost System Console → Integrations → Slash Commands**, add four:
+Open **Product menu → Integrations → Slash Commands** and add the commands you need. Enter the trigger word **without** the slash (for example, `reasoning`); users type it as `/reasoning` in chat. We recommend registering all five:
 
 | Command | Request URL | Purpose |
 |---------|-------------|---------|
 | `/model` | `http://<your-hermes-host>:18065/mm-command` | Switch AI model |
 | `/new` | `http://<your-hermes-host>:18065/mm-command` | Reset session |
+| `/reasoning` | `http://<your-hermes-host>:18065/mm-command` | View or change reasoning effort for the current conversation |
 | `/compress` | `http://<your-hermes-host>:18065/mm-command` | Compress current conversation context |
 | `/compact` | `http://<your-hermes-host>:18065/mm-command` | Compatibility alias for `/compress` |
 
 > 🔧 If Mattermost and Hermes are on the same machine (Docker deployment), use `http://host.docker.internal:18065/mm-command`
+
+Set each command's request method to **POST**. After saving, copy the token Mattermost displays and map it to that command in `MATTERMOST_SLASH_COMMAND_TOKENS`. For example, if you only register `/reasoning`, configure at least `reasoning=your-copied-token`. If `/model`, `/new`, `/compress`, or `/compact` were already registered, add each one's own token too; otherwise those existing commands will be rejected for missing credentials.
 
 ### Step 3: Configure Environment Variables
 
@@ -305,9 +324,20 @@ MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
 # reachable from a Docker network or another device.
 # Generate one with: openssl rand -hex 32
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
+
+# ═══ Slash command authentication (required) ═══
+# Copy the Token shown for each custom Slash Command in Mattermost.
+# Format: command=token; separate commands with semicolons. Never commit real tokens.
+MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token
 ```
 
 > ⚠️ If you're like most self-hosting users with Mattermost running in Docker, **`MATTERMOST_CALLBACK_URL` must be set**. Without it, the Docker container can't reach Hermes on the host machine.
+>
+> 🔐 Slash-command tokens and `MATTERMOST_CALLBACK_SECRET` are separate credentials: `/mm-command` uses `MATTERMOST_SLASH_COMMAND_TOKENS`; interactive-card callbacks use `MATTERMOST_CALLBACK_SECRET`. Restart the Gateway after changing environment variables.
+>
+> 🔐 Each Slash Command has its own token. The plugin checks it against the command name, so a `/reasoning` token cannot invoke `/new` or another command.
+
+Mattermost sends the matching credential in the Authorization header. Set each variable entry to the token for its trigger word; do not share these tokens in chat, screenshots, or source control.
 
 ### Step 4: Run Companion Script + Restart
 
@@ -337,7 +367,7 @@ hermes gateway restart
 
 > 💡 Don't forget the main script too: `~/.hermes/scripts/hermes-patches.sh apply` for the platform-agnostic fixes.
 
-🎉 **Done!** Now go to Mattermost and try `/model` or run a dangerous command to see the approval card.
+🎉 **Done!** Now try `/model` or `/reasoning high` in Mattermost, or run a dangerous command to see the approval card.
 
 ---
 
@@ -361,6 +391,20 @@ hermes gateway restart
 3. Click confirm — everything resets
 
 > 💡 `/new` doesn't delete chat history — it just makes the AI "forget". Previous messages remain in the Thread for viewing.
+
+### Adjusting Reasoning Effort
+
+Send one of these commands in the current Thread:
+
+```text
+/reasoning                 # Show the current setting
+/reasoning high            # Use high for this conversation
+/reasoning low             # Use low for this conversation
+/reasoning none            # Turn reasoning off for this conversation (if supported)
+/reasoning reset           # Clear this session override and inherit the configured setting
+```
+
+The setting is isolated to the current Mattermost conversation, so different Threads can use different levels. `/reasoning high --global` saves a new global default; use it only when you intentionally want to change the default for all conversations.
 
 ### Approving Dangerous Commands
 
@@ -456,7 +500,7 @@ mattermost-enhancer/
 > 💡 **Docker Self-Hosting Tips** — If you run Mattermost in Docker, these will save you some headaches:
 >
 > - **Messages not live-updating?** Set `AllowCorsFrom` to `http://127.0.0.1:8065` in `config.json` and restart the container. The browser WebSocket is being blocked by CORS.
-> - **`/model` not responding?** `MATTERMOST_CALLBACK_URL` in `.env` must use `http://host.docker.internal:18065/mattermost/callback`. Inside a container, `127.0.0.1` points to the container itself, not the host.
+> - **Slash commands not responding?** Their Mattermost Request URL must end in `/mm-command`; `MATTERMOST_CALLBACK_URL` is separate and must end in `/mattermost/callback` for card buttons. Inside a container, use `host.docker.internal` to reach Hermes on the host.
 > - **Images showing as broken?** Make `SiteURL` match the URL in your browser's address bar. Local = `127.0.0.1`, remote = your domain — don't mix them.
 > - **Random disconnects?** Give the container at least 2GB of memory. Run `docker stats mm-app` to check current usage.
 

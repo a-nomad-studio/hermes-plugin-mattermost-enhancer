@@ -1,5 +1,5 @@
 """
-MattermostApprovalAdapter — 继承内置 MattermostAdapter，扩展 DM 审批 + /model 卡片 + /new 确认。
+MattermostApprovalAdapter — 继承内置 MattermostAdapter，扩展 DM 审批、/model、/new 与 /reasoning。
 
 架构说明：
   Mattermost 拦截所有 / 开头消息，必须注册 Slash Command 才能接收。
@@ -23,6 +23,7 @@ MattermostApprovalAdapter — 继承内置 MattermostAdapter，扩展 DM 审批 
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -308,7 +309,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
         路由：
           POST /mattermost/callback → 按钮回调（审批 + 模型切换 + 会话重置 + Clarify）
-          POST /mm-command          → Slash 指令（/model + /new）
+          POST /mm-command          → Slash 指令（/model、/new、/reasoning、/compress、/compact）
         """
         import asyncio as _asyncio
         import threading as _threading
@@ -366,7 +367,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
                 if path == "/mattermost/callback":
                     result = await adapter_self._route_callback(headers, body)
                 elif path == "/mm-command":
-                    result = await adapter_self._route_slash_command(body)
+                    result = await adapter_self._route_slash_command(headers, body)
                 else:
                     writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
                     await writer.drain()
@@ -459,8 +460,8 @@ class MattermostApprovalAdapter(MattermostAdapter):
     # 路由: Slash 指令
     # ══════════════════════════════════════════════════════════════════════
 
-    async def _route_slash_command(self, body: str) -> Dict[str, Any]:
-        """处理 POST /mm-command（/model、/new、/compress、/compact）。
+    async def _route_slash_command(self, headers: str, body: str) -> Dict[str, Any]:
+        """处理 POST /mm-command（/model、/new、/reasoning、/compress、/compact）。
 
         关键设计：
           Slash Command 的 HTTP response 以用户身份显示 ephemeral（MM 设计限制）。
@@ -472,14 +473,46 @@ class MattermostApprovalAdapter(MattermostAdapter):
           gateway 主 loop 后台执行，HTTP 立即返回空 ephemeral —
           避免斜杠指令在 agent 繁忙时长时间无响应。
         """
-        from urllib.parse import unquote_plus
-        params: Dict[str, str] = {}
-        for pair in body.split("&"):
-            if "=" in pair:
-                k, v = pair.split("=", 1)
-                params[k] = unquote_plus(v)
+        from urllib.parse import parse_qs
+        parsed = parse_qs(body, keep_blank_values=True)
+        params: Dict[str, str] = {
+            key: values[-1] for key, values in parsed.items() if values
+        }
 
         command = params.get("command", "").lstrip("/")
+        # Mattermost assigns a distinct token to each custom Slash Command. Bind
+        # tokens to their command names so a valid /reasoning token cannot be
+        # replayed as /new or /model against this shared endpoint.
+        command_tokens: Dict[str, str] = {}
+        for item in os.getenv("MATTERMOST_SLASH_COMMAND_TOKENS", "").split(";"):
+            name, separator, token = item.partition("=")
+            if separator and name.strip() and token.strip():
+                command_tokens[name.strip().lstrip("/")] = token.strip()
+        expected_token = command_tokens.get(command, "")
+        authorization = ""
+        for line in headers.split("\r\n"):
+            if line.lower().startswith("authorization:"):
+                authorization = line.split(":", 1)[1].strip()
+                break
+        auth_parts = authorization.split(None, 1)
+        header_token = (
+            auth_parts[1].strip()
+            if len(auth_parts) == 2 and auth_parts[0].lower() == "token"
+            else ""
+        )
+        body_token = params.get("token", "")
+        supplied_token = header_token or body_token
+        tokens_match = bool(supplied_token and expected_token) and hmac.compare_digest(
+            supplied_token, expected_token,
+        )
+        if authorization and not header_token:
+            tokens_match = False
+        if header_token and body_token:
+            tokens_match = tokens_match and hmac.compare_digest(header_token, body_token)
+        if not tokens_match:
+            logger.warning("Rejected Mattermost Slash Command: missing or invalid command token")
+            return {"response_type": "ephemeral", "text": "⛔ Unauthorized"}
+
         channel_id = params.get("channel_id", "")
         user_id = params.get("user_id", "")
         # MM Slash Command payload 包含 root_id 字段！
@@ -521,6 +554,16 @@ class MattermostApprovalAdapter(MattermostAdapter):
             return {
                 "response_type": "ephemeral",
                 "text": f"🗜️ `/{command}` 已接收，正在启动压缩…",
+            }
+        elif command == "reasoning":
+            self._schedule_followup(
+                self._handle_reasoning_command(
+                    channel_id, user_id, root_id, params.get("text", ""),
+                )
+            )
+            return {
+                "response_type": "ephemeral",
+                "text": "🧠 `/reasoning` 已接收，正在更新当前对话的推理强度…",
             }
 
         return {"response_type": "ephemeral", "text": f"Unknown command: /{command}"}
@@ -744,6 +787,67 @@ class MattermostApprovalAdapter(MattermostAdapter):
                 logger.exception(
                     "Mattermost /%s result delivery failed: channel=%s root_id=%s",
                     invoked_as, channel_id[:8], root_id or "(channel-level)",
+                )
+
+    async def _handle_reasoning_command(
+        self,
+        channel_id: str,
+        user_id: str,
+        root_id: Optional[str],
+        args: str,
+    ) -> None:
+        """Delegate Mattermost /reasoning to Hermes' native session-scoped handler."""
+        try:
+            from gateway.config import Platform
+            from gateway.platforms.event import MessageEvent
+            from gateway.run import _gateway_runner_ref
+            from gateway.session import SessionSource
+
+            runner = _gateway_runner_ref()
+            if runner is None:
+                raise RuntimeError("Gateway runner is unavailable")
+
+            chat_type = self._channel_type_cache.get(channel_id)
+            if chat_type is None:
+                try:
+                    info = await self.get_chat_info(channel_id)
+                    chat_type = info.get("type", "channel")
+                except Exception:
+                    chat_type = "channel"
+                self._channel_type_cache[channel_id] = chat_type
+
+            source = SessionSource(
+                platform=Platform.MATTERMOST,
+                chat_id=str(channel_id),
+                chat_type=chat_type,
+                user_id=user_id or None,
+                thread_id=root_id or None,
+            )
+            event = MessageEvent(
+                text=f"/reasoning {args}".strip(),
+                source=source,
+                message_id=root_id or None,
+            )
+            async with runner._async_profile_scope_for_source(source):
+                result = await runner._handle_reasoning_command(event)
+        except Exception:
+            logger.exception(
+                "Mattermost /reasoning failed: channel=%s root_id=%s",
+                channel_id[:8], root_id or "(channel-level)",
+            )
+            result = "❌ 推理强度设置失败：Hermes Gateway 暂时无法处理此会话，请稍后重试。"
+
+        if result:
+            try:
+                await self.send(
+                    channel_id,
+                    result,
+                    metadata={"thread_id": root_id} if root_id else None,
+                )
+            except Exception:
+                logger.exception(
+                    "Mattermost /reasoning result delivery failed: channel=%s root_id=%s",
+                    channel_id[:8], root_id or "(channel-level)",
                 )
 
     # ══════════════════════════════════════════════════════════════════════

@@ -219,18 +219,37 @@ def check(name, cond, detail=""):
         print(f"  ❌ {name} {detail}")
 
 
-def post(path, body, headers=None):
+def post(
+    path,
+    body,
+    headers=None,
+    configured_tokens=(
+        "model=model-token;new=new-token;compact=compact-token;"
+        "reasoning=reasoning-token;compress=compress-token"
+    ),
+    add_command_token=True,
+):
     """向回调服务器发送真实 HTTP POST，返回 (status, body, elapsed_s)。"""
     url = f"http://127.0.0.1:18099{path}"
-    data = body if isinstance(body, bytes) else json.dumps(body).encode()
+    is_slash_command = path == "/mm-command"
+    if is_slash_command and isinstance(body, str) and "token=" not in body and add_command_token:
+        from urllib.parse import parse_qs, quote_plus
+        command = parse_qs(body).get("command", [""])[-1].lstrip("/")
+        token_map = dict(item.split("=", 1) for item in configured_tokens.split(";") if "=" in item)
+        body = f"{body}&token={quote_plus(token_map.get(command, ''))}"
+    data = body if isinstance(body, bytes) else (body.encode() if isinstance(body, str) else json.dumps(body).encode())
     req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
+    req.add_header(
+        "Content-Type",
+        "application/x-www-form-urlencoded" if is_slash_command else "application/json",
+    )
     for k, v in (headers or {}).items():
         req.add_header(k, v)
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status, json.loads(resp.read()), time.monotonic() - t0
+        with patch.dict("os.environ", {"MATTERMOST_SLASH_COMMAND_TOKENS": configured_tokens}):
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.status, json.loads(resp.read()), time.monotonic() - t0
     except urllib.error.HTTPError as e:
         return e.code, json.loads(e.read()), time.monotonic() - t0
 
@@ -365,14 +384,8 @@ async def main():
 
     print("\n── 7. Slash command — HTTP 立即返回空，工作派 followup ──")
     body = "command=/model&channel_id=chX&user_id=u1&root_id="
-    url = "http://127.0.0.1:18099/mm-command"
-    data = body.encode()
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    t0 = time.monotonic()
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        slash_body = json.loads(resp.read())
-        slash_elapsed = time.monotonic() - t0
+    status, slash_body, slash_elapsed = post("/mm-command", body)
+    check("HTTP 200", status == 200)
     check("HTTP 200 + 空 ephemeral", slash_body == {}, f"got: {slash_body}")
     check("响应 < 500ms", slash_elapsed < 0.5, f"took {slash_elapsed*1000:.0f}ms")
     await asyncio.sleep(0.2)
@@ -380,13 +393,8 @@ async def main():
 
     print("\n── 8. /compact Slash Command — canonical /compress followup ──")
     body = "command=/compact&text=keep+current+architecture&channel_id=chX&user_id=u1&root_id=threadX"
-    data = body.encode()
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    t0 = time.monotonic()
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        compact_body = json.loads(resp.read())
-        compact_elapsed = time.monotonic() - t0
+    status, compact_body, compact_elapsed = post("/mm-command", body)
+    check("HTTP 200", status == 200)
     check("HTTP 200 + ephemeral transport ack", compact_body.get("response_type") == "ephemeral", f"got: {compact_body}")
     check("ack 明示启动压缩", "正在启动压缩" in compact_body.get("text", ""), f"got: {compact_body}")
     check("响应 < 500ms", compact_elapsed < 0.5, f"took {compact_elapsed*1000:.0f}ms")
@@ -397,6 +405,101 @@ async def main():
     check("compact 保留调用别名", compact_locals.get("invoked_as") == "compact")
     check("focus 参数原样透传", compact_locals.get("args") == "keep current architecture")
     check("Thread root_id 原样透传", compact_locals.get("root_id") == "threadX")
+
+    print("\n── 8b. /reasoning Slash Command — 调用 Hermes 原生会话设置 ──")
+    body = "command=/reasoning&text=high&channel_id=chX&user_id=u1&root_id=threadX"
+    status, reasoning_body, reasoning_elapsed = post("/mm-command", body)
+    check("HTTP 200", status == 200)
+    check("ephemeral 确认已收到", reasoning_body.get("response_type") == "ephemeral")
+    check("响应说明更新当前会话", "当前对话" in reasoning_body.get("text", ""))
+    check("响应 < 500ms", reasoning_elapsed < 0.5, f"took {reasoning_elapsed*1000:.0f}ms")
+    check("reasoning followup 已派发", len(dispatched) == 5)
+    reasoning_followup = dispatched[-1]
+    reasoning_locals = reasoning_followup["locals"]
+    check("调用 reasoning handler", reasoning_followup["name"] == "_handle_reasoning_command")
+    check("推理等级原样透传", reasoning_locals.get("args") == "high")
+    check("Thread root_id 原样透传", reasoning_locals.get("root_id") == "threadX")
+
+    print("\n── 8c. Slash Command token 必须匹配 ──")
+    status, unauthorized, _ = post(
+        "/mm-command",
+        "command=/reasoning&text=high&channel_id=chX&user_id=u1&token=wrong-token",
+        configured_tokens="reasoning=expected-token",
+    )
+    check("错误 token 被拒绝", status == 200 and "Unauthorized" in unauthorized.get("text", ""))
+    check("拒绝请求未派发 followup", len(dispatched) == 5)
+    status, replayed, _ = post(
+        "/mm-command",
+        "command=/new&channel_id=chX&user_id=u1&token=reasoning-token",
+        add_command_token=False,
+    )
+    check("一个命令的 token 不能重放到另一个命令", status == 200 and "Unauthorized" in replayed.get("text", ""))
+    status, header_auth, _ = post(
+        "/mm-command",
+        "command=/reasoning&text=low&channel_id=chX&user_id=u1",
+        headers={"Authorization": "Token reasoning-token"},
+        add_command_token=False,
+    )
+    check("Mattermost Authorization Token header 可通过验证", status == 200 and header_auth.get("response_type") == "ephemeral")
+    status, mismatch, _ = post(
+        "/mm-command",
+        "command=/reasoning&text=low&channel_id=chX&user_id=u1&token=other-token",
+        headers={"Authorization": "Token reasoning-token"},
+        add_command_token=False,
+    )
+    check("Authorization 与表单 token 冲突时拒绝请求", status == 200 and "Unauthorized" in mismatch.get("text", ""))
+
+    print("\n── 8d. reasoning followup — 以原生 Gateway 处理器更新当前 Thread ──")
+    from contextlib import asynccontextmanager
+
+    class _Platform:
+        MATTERMOST = "mattermost"
+
+    class _SessionSource:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class _MessageEvent:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    events = []
+
+    class _Runner:
+        @asynccontextmanager
+        async def _async_profile_scope_for_source(self, source):
+            yield
+
+        async def _handle_reasoning_command(self, event):
+            events.append(event)
+            return "Reasoning set to high for this session"
+
+    runner = _Runner()
+    config_mod = types_mod.ModuleType("gateway.config")
+    config_mod.Platform = _Platform
+    event_mod = types_mod.ModuleType("gateway.platforms.event")
+    event_mod.MessageEvent = _MessageEvent
+    session_mod = types_mod.ModuleType("gateway.session")
+    session_mod.SessionSource = _SessionSource
+    run_mod = types_mod.ModuleType("gateway.run")
+    run_mod._gateway_runner_ref = lambda: runner
+    sent = []
+
+    async def fake_send(chat_id, content, metadata=None):
+        sent.append((chat_id, content, metadata))
+
+    ad._channel_type_cache["chX"] = "channel"
+    ad.send = fake_send
+    with patch.dict("sys.modules", {
+        "gateway.config": config_mod,
+        "gateway.platforms.event": event_mod,
+        "gateway.run": run_mod,
+        "gateway.session": session_mod,
+    }):
+        await ad._handle_reasoning_command("chX", "u1", "threadX", "high")
+    check("原生 handler 收到 /reasoning high", len(events) == 1 and events[0].text == "/reasoning high")
+    check("正确的 Mattermost 用户与 Thread", events[0].source.user_id == "u1" and events[0].source.thread_id == "threadX")
+    check("设置结果发回原 Thread", sent == [("chX", "Reasoning set to high for this session", {"thread_id": "threadX"})])
 
     print("\n── 9. 主 loop 阻塞时回调仍即时（核心场景！）──")
     # 用真实同步阻塞占住主 loop 3 秒（模拟 agent 繁忙时同步操作霸占 loop）

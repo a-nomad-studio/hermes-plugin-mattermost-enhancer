@@ -67,7 +67,23 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ---
 
-### 🔄 3. 重置对话（`/new` 指令）
+### 🧠 3. 调整推理强度（`/reasoning` 指令）
+
+**场景：** 简单问题不需要模型想太久；复杂问题则可能值得多花一些推理时间。
+
+**原来：** Mattermost 会拦截 `/` 开头的输入，Hermes 收不到 `/reasoning`，无法在当前会话调整推理强度。
+
+**现在：** 输入 `/reasoning high`、`/reasoning low` 或 `/reasoning none`，只调整当前 Mattermost 会话；其他 Thread 不受影响。输入 `/reasoning` 可查看当前状态，`/reasoning reset` 恢复继承的设置。
+
+可用等级：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`。具体模型可能会把不支持的等级调整到它可用的范围。
+
+> ⚠️ `/reasoning high --global` 会改全局默认值，不是临时设置；日常按会话切换时不要加 `--global`。
+
+> 📸 `[截图位]` — Mattermost Thread 中发送 `/reasoning high` 后，显示当前会话强度已更新
+
+---
+
+### 🔄 4. 重置对话（`/new` 指令）
 
 **场景：** 对话跑偏了，AI 一直在纠结前面说过的某个话题。你想"重开一局"。
 
@@ -84,7 +100,7 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ---
 
-### 🗜️ 4. 压缩对话上下文（`/compress` / `/compact`）
+### 🗜️ 5. 压缩对话上下文（`/compress` / `/compact`）
 
 **场景：** 一个 Thread 持续聊很久，早期讨论、工具结果和中间过程越积越多。模型能读取的上下文越来越紧张，速度、费用和回答稳定性都会受影响。
 
@@ -107,7 +123,7 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ---
 
-### ⌨️ 5. 正在输入提示（Typing 指示器）
+### ⌨️ 6. 正在输入提示（Typing 指示器）
 
 **场景：** 你在 Thread 里等 Hermes 回复，想知道它是不是在思考。
 
@@ -119,7 +135,7 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ---
 
-### ❓ 6. AI 向你提问（交互式卡片）
+### ❓ 7. AI 向你提问（交互式卡片）
 
 **场景：** Hermes 在做复杂任务时，需要在几个方案里选一个继续。比如「这个文件有两种处理方式，A 快速但粗糙，B 慢但精细，你要哪个？」或者是开放式问题「你希望用哪种方案？」
 
@@ -137,7 +153,7 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ---
 
-### 🏷️ 7. 显示当前模型（回复脚注）
+### 🏷️ 8. 显示当前模型（回复脚注）
 
 **场景：** 你同时开了好几个 Thread，每个 Thread 可能用不同的 AI 模型。聊着聊着就忘了「这个 Thread 用的是哪个模型？」
 
@@ -274,16 +290,19 @@ hermes plugins install colin-chang/hermes-plugin-mattermost-enhancer --enable
 
 ### 第 2 步：注册 Mattermost Slash 指令
 
-在 Mattermost **系统控制台 → 集成 → Slash 指令** 中添加四条：
+在 Mattermost **产品菜单 → 集成 → Slash 指令** 中添加需要的指令。Mattermost 的「触发词」填写不带斜杠的名称（例如 `reasoning`）；用户在聊天框里使用时再写成 `/reasoning`。建议一次注册这五条：
 
 | 指令 | 请求 URL | 说明 |
 |------|---------|------|
 | `/model` | `http://<你的Hermes主机>:18065/mm-command` | 切换 AI 模型 |
 | `/new` | `http://<你的Hermes主机>:18065/mm-command` | 重置会话 |
+| `/reasoning` | `http://<你的Hermes主机>:18065/mm-command` | 查看或调整当前会话的推理强度 |
 | `/compress` | `http://<你的Hermes主机>:18065/mm-command` | 压缩当前对话上下文 |
 | `/compact` | `http://<你的Hermes主机>:18065/mm-command` | `/compress` 的兼容别名 |
 
 > 🔧 如果 Mattermost 和 Hermes 在同一台机器上（Docker 部署），用 `http://host.docker.internal:18065/mm-command`
+
+每条指令都选择 **POST**，保存后复制 Mattermost 显示的 Token，按名称放进 `MATTERMOST_SLASH_COMMAND_TOKENS`。例如只注册 `/reasoning` 时，至少配置 `reasoning=你复制的Token`。如果之前已有 `/model`、`/new`、`/compress` 或 `/compact`，也要把它们各自的 Token 一并配置，否则这些旧命令会因缺少凭据而被拒绝。
 
 ### 第 3 步：配置环境变量
 
@@ -305,9 +324,20 @@ MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
 # HMAC 签名验证：当回调端口可被 Docker 网络或其他设备访问时必须配置。
 # 生成示例：openssl rand -hex 32
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
+
+# ═══ Slash 指令鉴权（必填）═══
+# 在每条 Mattermost 自定义 Slash 指令的设置页复制它自己的 Token。
+# 格式：指令名称=Token；多条指令用英文分号分隔。不要提交真实 Token 到代码仓库。
+MATTERMOST_SLASH_COMMAND_TOKENS=model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token
 ```
 
 > ⚠️ 如果你像大多数自部署用户一样，Mattermost 跑在 Docker 容器里，**`MATTERMOST_CALLBACK_URL` 必须填**，否则容器里的 Mattermost 无法回调到宿主机的 Hermes。
+>
+> 🔐 Slash 指令 Token 与 `MATTERMOST_CALLBACK_SECRET` 是两套不同的凭据：Slash 指令使用 `MATTERMOST_SLASH_COMMAND_TOKENS`；按钮卡片回调使用 `MATTERMOST_CALLBACK_SECRET`。配置环境变量后需重启 Gateway。
+
+> 🔐 每条 Slash 指令都有自己的 Token；插件会按指令名称分别校验，不能用 `/reasoning` 的 Token 调用 `/new` 等其他命令。
+
+Mattermost 会在请求头的 Authorization 字段中发送该指令对应的 Token。每条命令都要在上面的环境变量中填写与其触发词对应的 Token；不要把这些 Token 发到聊天、代码仓库或截图中。
 
 ### 第 4 步：运行配套脚本 + 重启
 
@@ -337,7 +367,7 @@ hermes gateway restart
 
 > 💡 别忘了主脚本：`~/.hermes/scripts/hermes-patches.sh apply` 修复平台无关的 Bug。
 
-🎉 **完成！** 现在去 Mattermost 里试试 `/model` 或者执行一条危险命令看看审批卡片吧。
+🎉 **完成！** 现在去 Mattermost 里试试 `/model`、`/reasoning high`，或者执行一条危险命令看看审批卡片吧。
 
 ---
 
@@ -361,6 +391,20 @@ hermes gateway restart
 3. 点击确认，一切重置
 
 > 💡 `/new` 不会删除聊天记录，只是让 AI "失忆"。之前的聊天还在 Thread 里可以看。
+
+### 调整推理强度
+
+在当前 Thread 中发送以下命令：
+
+```text
+/reasoning                 # 查看当前设置
+/reasoning high            # 当前会话使用 high
+/reasoning low             # 当前会话使用 low
+/reasoning none            # 当前会话关闭推理（模型支持时）
+/reasoning reset           # 清除本会话覆盖，恢复继承设置
+```
+
+设置按当前 Mattermost 会话隔离；不同 Thread 可以分别使用不同强度。`/reasoning high --global` 会保存全局默认值，请仅在确实要修改所有会话默认行为时使用。
 
 ### 审批危险操作
 
@@ -456,7 +500,7 @@ mattermost-enhancer/
 > 💡 **Docker 自部署小贴士** — 如果你用 Docker 跑 Mattermost，这几点可以帮你少踩坑：
 >
 > - **消息不实时渲染？** 把 `config.json` 里的 `AllowCorsFrom` 设为 `http://127.0.0.1:8065`，重启容器。浏览器 WebSocket 被 CORS 拦截了。
-> - **`/model` 没反应？** `.env` 的 `MATTERMOST_CALLBACK_URL` 必须用 `http://host.docker.internal:18065/mattermost/callback`。容器里的 `127.0.0.1` 是容器自己，不是宿主机。
+> - **`/model` 没反应？** Slash 指令的 Request URL 必须指向 `http://host.docker.internal:18065/mm-command`；按钮卡片回调才用 `MATTERMOST_CALLBACK_URL`，并以 `/mattermost/callback` 结尾。容器里的 `127.0.0.1` 是容器自己，不是宿主机。
 > - **图片裂了？** `SiteURL` 要与浏览器地址栏的 URL 一致。本地用 `127.0.0.1`，远程用域名，不要混搭。
 > - **偶尔断连？** 容器内存给到 2GB 以上，`docker stats mm-app` 可以看当前用量。
 

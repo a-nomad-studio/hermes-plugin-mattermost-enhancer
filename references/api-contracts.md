@@ -246,7 +246,11 @@ HMAC-SHA256(key=MATTERMOST_CALLBACK_SECRET, message=request body bytes) → hex 
 | 路由 | 方法 | Content-Type | 来源 | 处理 |
 |------|------|-------------|------|------|
 | `/mattermost/callback` | POST | `application/json` | Interactive Message 按钮 | `_route_callback()` → `_handle_callback()` |
-| `/mm-command` | POST | `application/x-www-form-urlencoded` | Slash Command | `_route_slash_command()` → `_handle_model_command()` / `_handle_new_command()` |
+| `/mm-command` | POST | `application/x-www-form-urlencoded` | Slash Command | `_route_slash_command()` → model / new / reasoning / compress handlers |
+
+Slash requests must provide the Mattermost command token in the standard Authorization header or the `token` form field. Configure the expected token for each trigger word in `MATTERMOST_SLASH_COMMAND_TOKENS` as `command=token` entries separated by semicolons. If both header and form field are present, they must match. Unknown commands or missing/mismatched tokens are rejected before any action is scheduled.
+
+`/reasoning` reconstructs a Mattermost `MessageEvent` with the submitted channel, user, and `root_id`, then delegates to Hermes' native `_handle_reasoning_command()`. This preserves per-session overrides, `reset`, `--global`, and native status reporting instead of duplicating Hermes' reasoning state logic in the plugin.
 
 **生命周期：** `connect()` → `asyncio.start_server()` / `disconnect()` → `_stop_callback_server()`
 

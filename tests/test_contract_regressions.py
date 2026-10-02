@@ -105,3 +105,20 @@ def test_mattermost_compress_commands_delegate_to_the_canonical_gateway_handler(
     assert "await self.send(channel_id, acknowledgement" in handler_source
     assert "await self.edit_message(chat_id=channel_id" in handler_source
     assert "metadata={'thread_id': root_id}" in handler_source
+
+
+def test_mattermost_reasoning_command_uses_native_gateway_handler_and_command_tokens():
+    tree = ast.parse((ROOT / "adapter.py").read_text(encoding="utf-8"))
+    adapter = _class(tree, "MattermostApprovalAdapter")
+    route = _method(adapter, "_route_slash_command")
+    route_source = ast.unparse(route)
+    assert "reasoning" in route_source and "command" in route_source
+    assert "MATTERMOST_SLASH_COMMAND_TOKENS" in route_source
+    assert "compare_digest" in route_source
+
+    handler = _method(adapter, "_handle_reasoning_command")
+    handler_source = ast.unparse(handler)
+    assert "runner._handle_reasoning_command(event)" in handler_source
+    assert "runner._async_profile_scope_for_source(source)" in handler_source
+    assert "reasoning" in handler_source and "args" in handler_source
+    assert "thread_id" in handler_source and "root_id" in handler_source
