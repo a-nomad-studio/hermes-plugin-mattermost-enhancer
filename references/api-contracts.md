@@ -58,6 +58,8 @@ Mattermost 通常通过请求体的 `token` 字段发送凭据；插件也兼容
 {"response_type": "ephemeral", "text": "🔄 模型选择器已发送"}
 ```
 
+当 `command=/reasoning` 且 `text` 为空时，插件会调用 Hermes Gateway 原生的 `/reasoning` 处理器，返回当前有效推理等级及其作用范围。该查询读取 Gateway 运行时的会话状态，而不是只读取 `config.yaml` 的全局默认值。
+
 **权限拒绝：**
 ```json
 {"response_type": "ephemeral", "text": "⛔ Unauthorized"}

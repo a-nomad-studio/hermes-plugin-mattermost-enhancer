@@ -408,9 +408,22 @@ Send one of these commands in the current Thread:
 /reasoning                 # Show the current setting
 /reasoning high            # Use high for this conversation
 /reasoning low             # Use low for this conversation
+/reasoning medium          # Use medium for this conversation
 /reasoning none            # Turn reasoning off for this conversation (if supported)
 /reasoning reset           # Clear this session override and inherit the configured setting
 ```
+
+#### Querying the Current Live Value
+
+In the **same Thread**, send the Slash Command without an argument:
+
+```text
+/reasoning
+```
+
+The plugin delegates this to Hermes' native handler, which reports the effective reasoning level and its scope (a current-session override or the global configuration). This is the correct way to query the Gateway's live conversation state.
+
+Do not replace this with a normal message such as “print the current reasoning value.” A normal agent turn can only infer from conversation context or `config.yaml`; it cannot reliably read the Gateway's in-memory session override, so it may show the global default instead of the actual value for the current Thread.
 
 The setting is isolated to the current Mattermost conversation, so different Threads can use different levels. `/reasoning high --global` saves a new global default; use it only when you intentionally want to change the default for all conversations.
 

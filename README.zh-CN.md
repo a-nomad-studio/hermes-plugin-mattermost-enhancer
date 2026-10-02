@@ -408,9 +408,22 @@ hermes gateway restart
 /reasoning                 # 查看当前设置
 /reasoning high            # 当前会话使用 high
 /reasoning low             # 当前会话使用 low
+/reasoning medium          # 当前会话使用 medium
 /reasoning none            # 当前会话关闭推理（模型支持时）
 /reasoning reset           # 清除本会话覆盖，恢复继承设置
 ```
+
+#### 查询当前实时值
+
+在**同一个 Thread** 中直接发送不带参数的 Slash 指令：
+
+```text
+/reasoning
+```
+
+插件会调用 Hermes 的原生处理器，显示当前有效的推理等级以及它的作用范围（当前会话覆盖或全局配置）。这是查询 Gateway 运行时会话状态的正确方式。
+
+不要改用普通消息询问“打印当前会话的 reasoning 值”。普通消息只能让模型根据上下文或 `config.yaml` 推测，无法可靠读取 Gateway 内存中的会话级临时覆盖，因此可能显示全局默认值而不是当前 Thread 的真实值。
 
 设置按当前 Mattermost 会话隔离；不同 Thread 可以分别使用不同强度。`/reasoning high --global` 会保存全局默认值，请仅在确实要修改所有会话默认行为时使用。
 
