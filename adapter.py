@@ -636,7 +636,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
         provider_groups = get_models_by_provider()
 
         # 2. 当前模型
-        current_model = await self._get_current_model_for_session(channel_id, root_id)
+        current_model = await self._get_current_model_for_session(channel_id, root_id, user_id)
 
         # 4. 渲染卡片（分组模式）
         callback_url = self._build_callback_url()
@@ -916,10 +916,10 @@ class MattermostApprovalAdapter(MattermostAdapter):
             return key
 
     async def _get_current_model_for_session(
-        self, channel_id: str, root_id: Optional[str],
+        self, channel_id: str, root_id: Optional[str], user_id: Optional[str] = None,
     ) -> str:
         """获取当前 session 使用的模型名。"""
-        session_key = await self._build_session_key(channel_id, root_id)
+        session_key = await self._build_session_key(channel_id, root_id, user_id)
 
         # 先查 session override
         try:

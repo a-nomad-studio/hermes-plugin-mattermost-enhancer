@@ -29,7 +29,9 @@ def register(ctx):
         interactive_setup,
         validate_mattermost_config,
         MAX_POST_LENGTH,
+        _PLATFORM_HINT,
     )
+    from hermes_plugins.platforms_mattermost import gateway_env
 
     ctx.register_platform(
         name="mattermost",
@@ -55,6 +57,14 @@ def register(ctx):
         max_message_length=MAX_POST_LENGTH,
         emoji="💬",
         allow_update_command=True,
+        platform_hint=_PLATFORM_HINT,
+        display_tier="medium",
+        dashboard_description="Connect Hermes to Mattermost channels and direct messages.",
+        docs_url="https://mattermost.com/deploy/",
+        dashboard_env_vars=("MATTERMOST_URL", "MATTERMOST_TOKEN", "MATTERMOST_ALLOWED_USERS"),
+        allowlist_suppresses_pairing=gateway_env.AUTHZ["allowlist_suppresses_pairing"],
+        env_overrides=gateway_env.ENV_OVERRIDES,
+        env_enable_credentials=gateway_env.ENV_ENABLE_CREDENTIALS,
     )
 
     # 注册 pre_gateway_dispatch hook — 实现 Channel → Thread 模型继承

@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Hermes](https://img.shields.io/badge/Hermes-%E2%89%A5%20v2026.9-blue)](https://github.com/nousresearch/hermes-agent)
-[![Release](https://img.shields.io/github/v/release/colin-chang/hermes-plugin-mattermost-enhancer?label=release)](https://github.com/colin-chang/hermes-plugin-mattermost-enhancer/releases)
+[![Release](https://img.shields.io/github/v/release/a-nomad-studio/hermes-plugin-mattermost-enhancer?label=release)](https://github.com/a-nomad-studio/hermes-plugin-mattermost-enhancer/releases)
 
 English Version | [中文版本](./README.zh-CN.md)
 
@@ -193,7 +193,7 @@ Below are 11 bugs fixed by this project (plugin + companion shell script). Each 
 | # | Bug Description | Real-World Impact | After Fix | Implementation |
 |---|----------------|-------------------|-----------|---------------|
 | **1** | Typing indicator at wrong level: the "typing..." indicator appears at the channel while Hermes is thinking in a Thread | You wait in a Thread with no typing feedback | Typing correctly appears in the current Thread | Adapter Override |
-| **2** | Missing file spam: Hermes posts long error messages when an image/file can't be found | Chat flooded with `File not found: /tmp/xxx.png`, disrupting conversation | Silently skipped — no noise | Adapter Override |
+| **2** | Missing file spam: Hermes posts long error messages when an image/file can't be found | Chat flooded with errors, disrupting conversation | Silently skipped — no noise | Fixed upstream |
 | **3** | AI questions too subtle: Hermes asks a question (multiple choice or open-ended) as plain text, easily missed in the conversation flow | You miss the question → no response → AI times out → also triggers a session split 💀 | Questions rendered as interactive cards with buttons — prominent and clickable | Adapter Override |
 | **4** | WebSocket frequent disconnects: Mattermost WebSocket disconnects every ~50s (close 258) | Brief message loss, duplicate messages, reply lag | Heartbeat optimized to 15s, connection stable | Adapter Override |
 | **5** | Media not routed to Thread: generated images/audio/video/documents appear in the main channel instead of the current Thread | You ask for an image in a Thread → image pops up in the channel, breaking the conversation flow 💀 | All media (images, audio, video, documents) correctly appear in the current Thread | ~~Adapter Override~~ Fixed upstream (v2026.7.30+) |
@@ -202,11 +202,9 @@ Below are 11 bugs fixed by this project (plugin + companion shell script). Each 
 | **8** | Session split (AI amnesia): When AI is waiting for your clarify reply, your next message starts a new conversation — AI forgets everything | You're chatting fine in Thread A, then suddenly AI doesn't recognize you and gives random answers | Messages correctly delivered to the waiting AI; no new session created | Shell Patch (E-P2) |
 | **9** | Clarify concurrency guard: during clarify waiting, simultaneously arriving messages can bypass the session guard and create duplicate sessions | Two AI agents start responding to the same Thread — confusing duplicate replies | Intercepted at session guard before a new session spawns | ~~Shell Patch~~ Fixed upstream |
 | **10** | Auto-resume session leaking: after Gateway restart, multiple Thread sessions in the same channel auto-resume simultaneously, responses cross between Threads | You see unrelated AI responses appearing in the wrong Thread after a restart | Deduplicates to most recent session per channel; Threads stay isolated | Shell Patch (E-P4) |
-| **11** | Response fragmentation: AI replies split into multiple separate messages (commentary and body sent separately) | One reply arrives as 3-5 messages, poor reading experience | Commentary merged into stream, one message does the job | Shell Patch (main script) |
+| **11** | Response fragmentation: AI replies split into multiple messages | One reply arrives as several messages | Upstream changed commentary handling; the old merge patch is no longer maintained | Upstream behavior changed |
 
-> 💡 **Bug #11** is fixed by the main `hermes-patches.sh` script (P50 commentary merge), not this plugin's companion script. See the main script in `~/.hermes/scripts/hermes-patches.sh`.
->
-> 💡 There are also two additional upstream bugs fixed via the main script: ghost empty code fences in long code blocks (P53), and stream fallback messages not routed to Threads (P55). These are uncommon but included in the same `hermes-patches.sh`.
+> 💡 **Bug #11** is historical. The current Hermes core script retains fixes for ghost code fences, MiniMax parameters, and cross-thread interruption routing; run its `check` command for the live status.
 
 ---
 
@@ -241,7 +239,7 @@ Bugs marked **Shell Patch** in the table above (#7-10) are exactly in that untou
 It fixes those plugin-unreachable bugs by modifying Hermes' source files with minimal changes:
 
 - **Companion script** (`scripts/hermes-mattermost-enhancer.sh`): Gateway-level patches specific to Mattermost interaction — clarify session handling (E-P2), auto-resume dedup (E-P4). Retired with upstream releases: E-P1 (progress in Thread), E-P3 (concurrency guard), E-P5 (status routing)
-- **Main script** (`~/.hermes/scripts/hermes-patches.sh`): Platform-agnostic Gateway fixes — commentary merge, ghost code fences, stream fallback reply routing, plus CLI-level fixes (custom provider, model whitelist, cron encoding)
+- **Main script** (`~/.hermes/scripts/hermes-patches.sh`): Cross-platform fixes such as ghost code fences, MiniMax parameters, and cross-thread interruption routing.
 
 > ⚠️ **Status:** These patches are maintained as local fixes. Some have been submitted upstream but are not yet merged into official Hermes releases. Running `check` after each Hermes upgrade is recommended — once upstream merges them, the scripts will report "already applied" and you can skip them.
 >
@@ -255,7 +253,7 @@ It fixes those plugin-unreachable bugs by modifying Hermes' source files with mi
 
 ```bash
 # 1. Plugin (adapter overrides — #1-6)
-hermes plugins install colin-chang/hermes-plugin-mattermost-enhancer --enable
+hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
 
 # 2. Companion script (Mattermost Gateway patches — #7-10)
 cd ~/.hermes/plugins/mattermost-enhancer
@@ -284,7 +282,7 @@ cd ~/.hermes/plugins/mattermost-enhancer
 ### Step 1: Install the Plugin
 
 ```bash
-hermes plugins install colin-chang/hermes-plugin-mattermost-enhancer --enable
+hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
 ```
 
 ### Step 2: Register Mattermost Slash Commands

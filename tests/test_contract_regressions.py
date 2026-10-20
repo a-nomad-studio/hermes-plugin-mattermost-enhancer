@@ -56,6 +56,13 @@ def test_platform_registration_keeps_bundled_adapter_contract():
         "standalone_sender_fn",
         "max_message_length",
         "allow_update_command",
+        "platform_hint",
+        "display_tier",
+        "dashboard_description",
+        "dashboard_env_vars",
+        "env_overrides",
+        "env_enable_credentials",
+        "allowlist_suppresses_pairing",
     }
     assert required <= names
 

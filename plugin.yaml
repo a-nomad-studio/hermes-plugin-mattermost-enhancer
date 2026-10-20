@@ -9,3 +9,5 @@ platforms:
   - mattermost
 hooks:
   - pre_gateway_dispatch  # Channel → Thread 模型继承
+provides_hooks:
+  - pre_gateway_dispatch

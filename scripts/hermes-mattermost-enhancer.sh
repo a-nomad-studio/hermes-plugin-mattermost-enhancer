@@ -40,20 +40,18 @@
 #     评论→正文合并 / 幽灵代码围栏 / stream fallback 丢失 reply_to
 #
 #   版本感知：
-#     最后验证: 2026-10-02
-#     Hermes 版本: v0.21.5+5757.g0be2d56（CalVer=2026.9.24；installed/origin=0be2d562b06）
+#     最后验证: 2026-10-20
+#     Hermes 版本: v0.22.2+2606.gbd3cbe9（installed/origin=bd3cbe91a90）
 #     验证方式: A+B+C 三重验证（上游等价实现 / 完整 old_string / 当前源码唯一匹配）
-#     E-P2 与 E-P4 均未被上游等价实现，两个完整 old_string 在最新版源码各唯一匹配一次；
-#     E-P3 已由上游 _hm_pending_reply_intercepts 统一拦截架构覆盖并维持移除。
-#     bundled Mattermost adapter 导入路径不变；register_platform 参数 17/17 完整；
-#     connect/disconnect/send/send_typing/_resolve_root_id/WebSocket 签名一致，
-#     send_exec_approval 的 allow_permanent/allow_session/smart_denied 三个 kwargs 已对齐；
-#     插件独有的 edit_message metadata 兼容、DM 审批、Clarify 卡片与 footer 合并保留。
+#     E-P2 两个锚点、E-P4 锚点均唯一匹配干净上游与安装树；修复未等价合入。
+#     E-P3 由上游 _hm_pending_reply_intercepts 统一拦截架构覆盖，维持移除。
+#     E-P4 去重仅限 Mattermost，不影响其他平台的自动恢复。
+#     注册表新增的 env / display / dashboard / prompt 元数据在插件注册时转交。
 #
-#   已验证（v0.21.5+5757.g0be2d56 / origin:main=0be2d562b06）：
-#     E-P2. run_inbound.py (Clarify Session)  — 未合入，old_string 唯一匹配
-#     E-P3. run_inbound.py (Clarify 并发)     — 上游统一拦截架构覆盖，维持移除
-#     E-P4. run_startup.py (Session 串台去重) — 未合入，old_string 唯一匹配
+#   已验证（v0.22.2+2606.gbd3cbe9 / origin:main=bd3cbe91a90）：
+#     E-P2. run_inbound.py (Clarify Session)  — A=0、B=1+1、C=1+1
+#     E-P3. run_inbound.py (Clarify 并发)     — 上游统一拦截架构覆盖
+#     E-P4. run_startup.py (Session 串台去重) — A=0、B=1、C=1
 #
 #   插件侧同步审计（adapter.py，v0.21.3）：
 #     退役覆写 9 个（上游 _post_message 链已覆盖）：send_multiple_images /
@@ -242,7 +240,7 @@ PYEOF
 patch_session_dedup() {
     run_patch "gateway/run_startup.py" \
         "Fix: auto-resume session leaking into wrong thread（修复「Gateway重启后多条Thread session串台」的问题）" \
-        'Deduplicate.*keep only the most recent' <<'PYEOF'
+        'Deduplicate Mattermost resumes only' <<'PYEOF'
 import sys
 file_path = sys.argv[1]
 with open(file_path, "r") as f:
@@ -252,13 +250,15 @@ old = '''        return candidates
 
     def _resume_owner_authorized(self, session_key: str, source) -> bool:'''
 
-new = '''        # Deduplicate: keep only the most recent session per (platform, chat_id).
-        # When multiple threads in the same channel are auto-resumed
-        # simultaneously (e.g. after a gateway crash), responses from one
-        # thread can leak into another — the user sees a message about
-        # an unrelated topic appearing in their current thread.
+new = '''        # Deduplicate Mattermost resumes only: keep the most recent session
+        # per channel. Other platforms must retain every pending session.
+        from gateway.config import Platform
         _per_chat: dict = {}
+        _retained: list = []
         for entry in candidates:
+            if entry.origin.platform != Platform.MATTERMOST:
+                _retained.append(entry)
+                continue
             key = (entry.origin.platform, entry.origin.chat_id)
             existing = _per_chat.get(key)
             if (
@@ -270,7 +270,7 @@ new = '''        # Deduplicate: keep only the most recent session per (platform,
                 )
             ):
                 _per_chat[key] = entry
-        return list(_per_chat.values())
+        return _retained + list(_per_chat.values())
 
     def _resume_owner_authorized(self, session_key: str, source) -> bool:'''
 
@@ -324,7 +324,7 @@ check_status() {
     fi
 
     # E-P4
-    if grep -q 'Deduplicate.*keep only the most recent' "${AGENT_DIR}/gateway/run_startup.py" 2>/dev/null; then
+    if grep -q 'Deduplicate Mattermost resumes only' "${AGENT_DIR}/gateway/run_startup.py" 2>/dev/null; then
         ok "Fix: auto-resume session leaking into wrong thread（修复「Gateway重启后 session 串台」的问题）"
         ok_count=$((ok_count + 1))
     else
