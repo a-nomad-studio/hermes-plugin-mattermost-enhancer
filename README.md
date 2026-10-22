@@ -63,7 +63,7 @@ Thread A uses Model X for coding; Thread B uses Model Y for chatting. No interfe
 >
 > Example: you type `/model` in `#dev` channel and select `deepseek-v4-pro`, then reply to any message (creating a Thread). That new Thread automatically uses `deepseek-v4-pro`.
 >
-> **Doesn't affect existing Threads** — if a Thread already uses a different model, inheritance won't overwrite it. Each Thread can still independently `/model` back to any model.
+> **Threads with an existing model setting are not overwritten.** A Thread without its own model setting attempts to inherit the channel setting when a message arrives. Only the model choice is inherited — **not the conversation history of the channel or other Threads**. Each Thread can still use `/model` independently.
 
 ---
 
@@ -85,18 +85,28 @@ Available levels: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, an
 
 ### 🔄 4. Reset Conversation (`/new` Command)
 
-**Scenario:** The conversation has gone off track and the AI keeps fixating on an earlier topic. You want a fresh start.
+**Scenario:** The conversation has gone off track. You want to keep the same Thread or direct-message window but stop carrying forward the previous conversation context.
 
-**Before:** No way out — either start a new Thread or endure the AI's "memory" 💀
-
-**Now:** Type `/new` and a confirmation card appears:
+**Now:** Type `/new` **inside the Thread or direct message (DM) you want to reset**. A confirmation card appears:
 
 ![New session card effect](images/new.webp)
 
 After confirming:
-- ✅ The Thread's model override is cleared (back to default)
-- ✅ Hermes' "memory" is wiped (like a brand-new conversation)
-- ✅ Session state is reset
+- The conversation starts a new session without carrying forward the old session's chat context; other Threads are unaffected.
+- The current session's model and reasoning-effort overrides are cleared. The next Thread message may still inherit the channel's model, so **returning to the global default model is not guaranteed**.
+- Mattermost chat history is not deleted, and Hermes' long-term memory, persona, and system instructions are not cleared.
+
+#### When Do You Need `/new`?
+
+| Location | Recommendation |
+|---|---|
+| Inside an existing Thread or DM | Use it when you want a fresh start in the same window |
+| Channel main timeline in thread mode (`MATTERMOST_REPLY_MODE=thread`) | **Not needed.** Each new top-level message starts an independent Thread session; just send your message |
+| Channel main timeline in flat mode (`MATTERMOST_REPLY_MODE=off`) | Can reset the accumulating channel-level conversation |
+
+In thread mode, the channel is a container for topics; it does not combine all Thread histories into one shared context. **Running `/new` in the channel's main timeline does not reset any existing Thread or clear all conversations in the channel.** It does clear that user's channel-level model setting, affecting Threads that subsequently need to inherit a model from the channel.
+
+> ⚠️ **Current limitations:** The plugin does not yet use Hermes' complete native reset workflow, so resetting does not guarantee that an already-running task stops immediately. Wait for the task to finish before resetting. If the target session does not exist, the confirmation card may still report that a new session was created even though none was actually created.
 
 ---
 
@@ -292,7 +302,7 @@ Open **Product menu → Integrations → Slash Commands** and add the commands y
 | Command | Request URL | Purpose |
 |---------|-------------|---------|
 | `/model` | `http://<your-hermes-host>:18065/mm-command` | Switch AI model |
-| `/new` | `http://<your-hermes-host>:18065/mm-command` | Reset session |
+| `/new` | `http://<your-hermes-host>:18065/mm-command` | Reset the current conversation; in thread mode, use it inside a Thread or DM |
 | `/reasoning` | `http://<your-hermes-host>:18065/mm-command` | View or change reasoning effort for the current conversation |
 | `/compress` | `http://<your-hermes-host>:18065/mm-command` | Compress current conversation context |
 | `/compact` | `http://<your-hermes-host>:18065/mm-command` | Compatibility alias for `/compress` |
@@ -392,11 +402,11 @@ hermes gateway restart
 
 ### Resetting a Conversation
 
-1. Type `/new` and send
+1. Type `/new` inside the Thread or DM you want to reset and send
 2. A confirmation card appears
-3. Click confirm — everything resets
+3. Click confirm; subsequent conversation no longer carries forward the old session's chat context
 
-> 💡 `/new` doesn't delete chat history — it just makes the AI "forget". Previous messages remain in the Thread for viewing.
+> 💡 In thread mode, start a new topic by sending a message in the channel's main timeline — no `/new` needed. Resetting does not delete chat history or long-term memory. See “Reset Conversation” above for model inheritance and current limitations.
 
 ### Adjusting Reasoning Effort
 
