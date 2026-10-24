@@ -40,20 +40,20 @@
 #     评论→正文合并 / 幽灵代码围栏 / stream fallback 丢失 reply_to
 #
 #   版本感知：
-#     最后验证: 2026-10-20
-#     Hermes 版本: v0.22.2+2606.gbd3cbe9（installed/origin=bd3cbe91a90）
+#     最后验证: 2026-10-24
+#     Hermes 版本: v0.22.5（installed/origin≈adec2817ec0，installed=bf0203a794a stable tag commit）
 #     验证方式: A+B+C 三重验证（上游等价实现 / 完整 old_string / 当前源码唯一匹配）
 #     E-P2 两个锚点、E-P4 锚点均唯一匹配干净上游与安装树；修复未等价合入。
 #     E-P3 由上游 _hm_pending_reply_intercepts 统一拦截架构覆盖，维持移除。
 #     E-P4 去重仅限 Mattermost，不影响其他平台的自动恢复。
 #     注册表新增的 env / display / dashboard / prompt 元数据在插件注册时转交。
 #
-#   已验证（v0.22.2+2606.gbd3cbe9 / origin:main=bd3cbe91a90）：
+#   已验证（v0.22.5 / origin:main=adec2817ec0）：
 #     E-P2. run_inbound.py (Clarify Session)  — A=0、B=1+1、C=1+1
 #     E-P3. run_inbound.py (Clarify 并发)     — 上游统一拦截架构覆盖
 #     E-P4. run_startup.py (Session 串台去重) — A=0、B=1、C=1
 #
-#   插件侧同步审计（adapter.py，v0.21.3）：
+#   插件侧同步审计（adapter.py，v2026.10.24）：
 #     退役覆写 9 个（上游 _post_message 链已覆盖）：send_multiple_images /
 #     send_image / send_image_file / send_document / send_video / send_voice /
 #     _derive_reply_to / _send_local_file / _send_url_as_file；
