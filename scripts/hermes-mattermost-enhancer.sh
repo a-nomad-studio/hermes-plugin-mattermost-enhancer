@@ -41,7 +41,7 @@
 #
 #   版本感知：
 #     最后验证: 2026-10-24
-#     Hermes 版本: v0.22.5（installed/origin≈adec2817ec0，installed=bf0203a794a stable tag commit）
+#     Hermes 版本: v0.22.5（installed=bf0203a794a，origin/main=adec2817ec0）
 #     验证方式: A+B+C 三重验证（上游等价实现 / 完整 old_string / 当前源码唯一匹配）
 #     E-P2 两个锚点、E-P4 锚点均唯一匹配干净上游与安装树；修复未等价合入。
 #     E-P3 由上游 _hm_pending_reply_intercepts 统一拦截架构覆盖，维持移除。
