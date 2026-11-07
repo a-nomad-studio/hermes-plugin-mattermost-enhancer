@@ -86,13 +86,26 @@ bundled_mm._standalone_send = AsyncMock(return_value={})
 bundled_mm.interactive_setup = lambda *a, **k: None
 bundled_mm.validate_mattermost_config = lambda *a, **k: (True, "")
 
-hermes_plugins = types_mod.ModuleType("hermes_plugins")
-hermes_plugins.__path__ = []
-sys.modules["hermes_plugins"] = hermes_plugins
-sys.modules["hermes_plugins.platforms_mattermost"] = types_mod.ModuleType(
-    "hermes_plugins.platforms_mattermost"
-)
-sys.modules["hermes_plugins.platforms_mattermost.adapter"] = bundled_mm
+plugins_pkg = types_mod.ModuleType("plugins")
+plugins_pkg.__path__ = []
+platforms_pkg = types_mod.ModuleType("plugins.platforms")
+platforms_pkg.__path__ = []
+platforms_mattermost = types_mod.ModuleType("plugins.platforms.mattermost")
+platforms_mattermost.__path__ = []
+sys.modules["plugins"] = plugins_pkg
+sys.modules["plugins.platforms"] = platforms_pkg
+sys.modules["plugins.platforms.mattermost"] = platforms_mattermost
+sys.modules["plugins.platforms.mattermost.adapter"] = bundled_mm
+platforms_mattermost.gateway_env = types_mod.ModuleType("plugins.platforms.mattermost.gateway_env")
+platforms_mattermost.gateway_env.AUTHZ = {
+    "allowed_users_env": "MATTERMOST_ALLOWED_USERS",
+    "allow_all_env": "MATTERMOST_ALLOW_ALL_USERS",
+    "allow_bots_env": "MATTERMOST_ALLOW_BOTS",
+    "allowlist_suppresses_pairing": True,
+}
+platforms_mattermost.gateway_env.ENV_OVERRIDES = ()
+platforms_mattermost.gateway_env.ENV_ENABLE_CREDENTIALS = ()
+sys.modules["plugins.platforms.mattermost.gateway_env"] = platforms_mattermost.gateway_env
 sys.modules["gateway"] = gateway_mod
 sys.modules["gateway.platforms"] = platforms_mod
 sys.modules["gateway.platforms.base"] = base_mod
@@ -178,12 +191,19 @@ async def main():
     # 记录 admin 是频道里"第一个"非 bot 成员（members 反查的坑）
     # 但发起者是 user1。构造：admin 的 DM channel 也被记录过（模拟历史 DM）
     captured_dm = {}
+    captured_payloads = []
 
     async def _fake_get_or_create_dm(user_id):
         captured_dm["user_id"] = user_id
         return f"dm_{user_id}"
 
     ad._get_or_create_dm = _fake_get_or_create_dm
+
+    async def _capture_api_post(path, payload):
+        captured_payloads.append((path, payload))
+        return {"id": "approval-post"}
+
+    ad._api_post = _capture_api_post
 
     result = await ad.send_exec_approval(
         chat_id="multi",
@@ -192,6 +212,7 @@ async def main():
         description="dangerous",
         metadata={"thread_id": "t1"},
         user_id=None,  # 模拟 gateway 未传 user_id
+        request_id="request-bound-approval",
     )
     check("审批发送成功", result.success, f"got {result}")
     check(
@@ -199,6 +220,11 @@ async def main():
         captured_dm.get("user_id") == "user1",
         f"got {captured_dm.get('user_id')}",
     )
+    actions = captured_payloads[-1][1]["props"]["attachments"][0]["actions"]
+    contexts = [action["integration"]["context"] for action in actions]
+    check("四个审批/拒绝按钮都携带 request_id", len(contexts) == 4 and all(
+        context.get("request_id") == "request-bound-approval" for context in contexts
+    ))
 
     print("\n── 4. DM 场景仍正确（无 thread、单用户）──")
     ad.build_source(chat_id="dm1", user_id="alice", thread_id=None)

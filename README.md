@@ -1,7 +1,7 @@
 # Hermes Mattermost Enhancer Plugin
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Hermes](https://img.shields.io/badge/Hermes-%E2%89%A5%20v2026.9-blue)](https://github.com/nousresearch/hermes-agent)
+[![Hermes](https://img.shields.io/badge/Hermes-%E2%89%A5%20v0.23-blue)](https://github.com/nousresearch/hermes-agent)
 [![Release](https://img.shields.io/github/v/release/a-nomad-studio/hermes-plugin-mattermost-enhancer?label=release)](https://github.com/a-nomad-studio/hermes-plugin-mattermost-enhancer/releases)
 
 English Version | [中文版本](./README.zh-CN.md)
@@ -39,7 +39,7 @@ This plugin "retrofits" these capabilities onto Hermes so everything just feels 
 
 ![Approval card effect](images/approve.webp)
 
-Click any button and it takes effect immediately — all within Mattermost, no window switching.
+The choice takes effect immediately and the card disappears. Each card is bound to the exact pending command that created it; if that command has already been handled or timed out, its stale card cannot accidentally approve the next command in the same session. Everything happens inside Mattermost, no window switching.
 
 ---
 
@@ -283,7 +283,7 @@ cd ~/.hermes/plugins/mattermost-enhancer
 
 ### Prerequisites
 
-- ✅ Running [Hermes Agent](https://github.com/nousresearch/hermes-agent) (v2026.9+)
+- ✅ Running [Hermes Agent](https://github.com/nousresearch/hermes-agent) (v0.23.0+)
 - ✅ Mattermost server with Bot account configured
 - ✅ Python 3.11+
 

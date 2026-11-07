@@ -1,7 +1,7 @@
 # Hermes Mattermost Enhancer Plugin
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Hermes](https://img.shields.io/badge/Hermes-%E2%89%A5%20v2026.9-blue)](https://github.com/nousresearch/hermes-agent)
+[![Hermes](https://img.shields.io/badge/Hermes-%E2%89%A5%20v0.23-blue)](https://github.com/nousresearch/hermes-agent)
 [![Release](https://img.shields.io/github/v/release/a-nomad-studio/hermes-plugin-mattermost-enhancer?label=release)](https://github.com/a-nomad-studio/hermes-plugin-mattermost-enhancer/releases)
 
 [English Version](./README.md) | 中文版本
@@ -39,7 +39,7 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 
 ![授权选项卡效果](images/approve.webp)
 
-你点哪个按钮，按钮就会立刻消失并生效。整个过程全在 Mattermost 里完成，不用切窗口。
+你点哪个按钮，按钮就会立刻消失并生效。每张卡片只对应它创建时那一条待审批命令；如果命令已处理或超时，旧卡片不会误批准同一会话中的下一条命令。整个过程全在 Mattermost 里完成，不用切窗口。
 
 ---
 
@@ -284,7 +284,7 @@ cd ~/.hermes/plugins/mattermost-enhancer
 
 ### 前提条件
 
-- ✅ 已经在用 [Hermes Agent](https://github.com/nousresearch/hermes-agent)（版本 v2026.9+）
+- ✅ 已经在用 [Hermes Agent](https://github.com/nousresearch/hermes-agent)（版本 v0.23.0+）
 - ✅ 有一个 Mattermost 服务器，Bot 账号已配好
 - ✅ Python 3.11+
 

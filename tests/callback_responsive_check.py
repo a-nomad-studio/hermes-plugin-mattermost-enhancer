@@ -82,13 +82,27 @@ bundled_mm._standalone_send = AsyncMock(return_value={})
 bundled_mm.interactive_setup = lambda *a, **k: None
 bundled_mm.validate_mattermost_config = lambda *a, **k: (True, "")
 
-hermes_plugins = types_mod.ModuleType("hermes_plugins")
-hermes_plugins.__path__ = []
-sys.modules["hermes_plugins"] = hermes_plugins
-sys.modules["hermes_plugins.platforms_mattermost"] = types_mod.ModuleType(
-    "hermes_plugins.platforms_mattermost"
-)
-sys.modules["hermes_plugins.platforms_mattermost.adapter"] = bundled_mm
+plugins_pkg = types_mod.ModuleType("plugins")
+plugins_pkg.__path__ = []
+platforms_pkg = types_mod.ModuleType("plugins.platforms")
+platforms_pkg.__path__ = []
+mattermost_pkg = types_mod.ModuleType("plugins.platforms.mattermost")
+mattermost_pkg.__path__ = []
+sys.modules["plugins"] = plugins_pkg
+sys.modules["plugins.platforms"] = platforms_pkg
+sys.modules["plugins.platforms.mattermost"] = mattermost_pkg
+sys.modules["plugins.platforms.mattermost.adapter"] = bundled_mm
+platforms_mattermost = mattermost_pkg
+platforms_mattermost.gateway_env = types_mod.ModuleType("plugins.platforms.mattermost.gateway_env")
+platforms_mattermost.gateway_env.AUTHZ = {
+    "allowed_users_env": "MATTERMOST_ALLOWED_USERS",
+    "allow_all_env": "MATTERMOST_ALLOW_ALL_USERS",
+    "allow_bots_env": "MATTERMOST_ALLOW_BOTS",
+    "allowlist_suppresses_pairing": True,
+}
+platforms_mattermost.gateway_env.ENV_OVERRIDES = ()
+platforms_mattermost.gateway_env.ENV_ENABLE_CREDENTIALS = ()
+sys.modules["plugins.platforms.mattermost.gateway_env"] = platforms_mattermost.gateway_env
 sys.modules["gateway"] = gateway_mod
 sys.modules["gateway.platforms"] = platforms_mod
 sys.modules["gateway.platforms.base"] = base_mod
@@ -154,12 +168,17 @@ approval_mod._gateway_queues = {}
 
 def resolve_gateway_approval(session_key, choice, resolve_all=False, reason=None, request_id=None):
     queue = approval_mod._gateway_queues.get(session_key, [])
-    targets = list(queue) if resolve_all else queue[:1]
+    if request_id:
+        targets = [entry for entry in queue if entry.data.get("request_id") == request_id]
+    else:
+        targets = list(queue) if resolve_all else queue[:1]
     if not targets:
         return 0
     for entry in targets:
         entry.result = choice
-    if resolve_all:
+    if request_id:
+        queue[:] = [entry for entry in queue if entry not in targets]
+    elif resolve_all:
         queue.clear()
     else:
         queue.pop(0)
@@ -296,7 +315,7 @@ async def main():
     # 注册一个 pending approval（直接用真实 tools.approval 状态）
     # v2026.9.7 对齐：_ApprovalEntry 已从 tools.approval 拆到 tools.approval_gateway_wait
     from tools.approval_gateway_wait import _ApprovalEntry
-    entry = _ApprovalEntry({"command": "ls -la"})
+    entry = _ApprovalEntry({"command": "ls -la", "request_id": "req-primary"})
     approval_mod._gateway_queues["agent:main:mattermost:dm:ch1"] = [entry]
 
     body = {
@@ -305,6 +324,7 @@ async def main():
             "session_key": "agent:main:mattermost:dm:ch1",
             "command": "ls -la",
             "chat_id": "ch1",
+            "request_id": "req-primary",
         },
         "user_id": "u1",
         "post_id": "post_approve_1",
@@ -327,6 +347,48 @@ async def main():
     status, resp, elapsed = post("/mattermost/callback", body)
     check("重复点击返回已处理", "已处理" in resp.get("update", {}).get("message", ""), f"got: {resp}")
     check("重复点击 < 500ms", elapsed < 0.5)
+
+    print("\n── 3b. 旧审批卡片不能批准同一会话中的下一条危险命令 ──")
+    stale_key = "agent:main:mattermost:dm:stale-binding"
+    first = _ApprovalEntry({"command": "first command", "request_id": "req-first"})
+    second = _ApprovalEntry({"command": "second command", "request_id": "req-second"})
+    approval_mod._gateway_queues[stale_key] = [first, second]
+    legacy_body = {
+        "context": {
+            "action": "approve_once",
+            "session_key": stale_key,
+            "command": "old card without request ID",
+            "chat_id": "ch1",
+        },
+        "user_id": "u1",
+        "post_id": "post_legacy_approval",
+        "channel_id": "dm1",
+        "trigger_id": "tr-legacy",
+    }
+    with patch.dict("os.environ", {"MATTERMOST_ALLOWED_USERS": ""}):
+        status, legacy_resp, legacy_elapsed = post("/mattermost/callback", legacy_body)
+    check("没有 request_id 的旧卡片被拒绝", status == 200 and "此审批已处理" in legacy_resp.get("update", {}).get("message", ""))
+    check("旧卡片不会触碰任何待审批命令", first.result is None and second.result is None)
+    check("旧卡片拒绝响应 < 500ms", legacy_elapsed < 0.5)
+
+    body = {
+        "context": {
+            "action": "approve_once",
+            "session_key": stale_key,
+            "command": "second command",
+            "chat_id": "ch1",
+            "request_id": "req-second",
+        },
+        "user_id": "u1",
+        "post_id": "post_approve_second",
+        "channel_id": "dm1",
+        "trigger_id": "tr2",
+    }
+    with patch.dict("os.environ", {"MATTERMOST_ALLOWED_USERS": ""}):
+        status, resp, elapsed = post("/mattermost/callback", body)
+    check("指定 request_id 的审批被批准", status == 200 and second.result == "once")
+    check("较早的审批仍保持待处理", first.result is None and approval_mod._gateway_queues.get(stale_key) == [first])
+    check("绑定审批响应 < 500ms", elapsed < 0.5)
 
     print("\n── 4. Clarify 选项回调 — 即时确认卡片 ──")
     c_entry = clarify_mod.register("cid001", "sess1", "选一个?", ["A", "B"])
@@ -521,12 +583,13 @@ async def main():
             "action": "approve_session",
             "session_key": "agent:main:mattermost:dm:ch2",
             "chat_id": "ch2",
+            "request_id": "req-busy",
         },
         "user_id": "u1",
         "post_id": "post_busy_1",
         "channel_id": "dm2",
     }
-    entry2 = _ApprovalEntry({"command": "echo"})
+    entry2 = _ApprovalEntry({"command": "echo", "request_id": "req-busy"})
     approval_mod._gateway_queues["agent:main:mattermost:dm:ch2"] = [entry2]
 
     status, resp, elapsed = post("/mattermost/callback", body)

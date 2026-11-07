@@ -22,7 +22,7 @@ def register(ctx):
     # cron delivery, auth helpers, message-length limit, and display
     # settings) while layering the enhancer's own DM-approval + slash-
     # command + clarify-card features on top.
-    from hermes_plugins.platforms_mattermost.adapter import (
+    from plugins.platforms.mattermost.adapter import (
         _apply_yaml_config,
         _is_connected,
         _standalone_send,
@@ -31,7 +31,7 @@ def register(ctx):
         MAX_POST_LENGTH,
         _PLATFORM_HINT,
     )
-    from hermes_plugins.platforms_mattermost import gateway_env
+    from plugins.platforms.mattermost import gateway_env
 
     ctx.register_platform(
         name="mattermost",
@@ -50,8 +50,6 @@ def register(ctx):
         ),
         setup_fn=interactive_setup,
         apply_yaml_config_fn=_apply_yaml_config,
-        allowed_users_env="MATTERMOST_ALLOWED_USERS",
-        allow_all_env="MATTERMOST_ALLOW_ALL_USERS",
         cron_deliver_env_var="MATTERMOST_HOME_CHANNEL",
         standalone_sender_fn=_standalone_send,
         max_message_length=MAX_POST_LENGTH,
@@ -62,7 +60,7 @@ def register(ctx):
         dashboard_description="Connect Hermes to Mattermost channels and direct messages.",
         docs_url="https://mattermost.com/deploy/",
         dashboard_env_vars=("MATTERMOST_URL", "MATTERMOST_TOKEN", "MATTERMOST_ALLOWED_USERS"),
-        allowlist_suppresses_pairing=gateway_env.AUTHZ["allowlist_suppresses_pairing"],
+        **gateway_env.AUTHZ,
         env_overrides=gateway_env.ENV_OVERRIDES,
         env_enable_credentials=gateway_env.ENV_ENABLE_CREDENTIALS,
     )

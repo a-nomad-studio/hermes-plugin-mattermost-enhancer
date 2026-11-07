@@ -41,6 +41,9 @@ def test_platform_registration_keeps_bundled_adapter_contract():
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "register_platform"
     )
+    source = (ROOT / "__init__.py").read_text(encoding="utf-8")
+    assert "from plugins.platforms.mattermost.adapter import" in source
+    assert "from plugins.platforms.mattermost import gateway_env" in source
     names = {keyword.arg for keyword in call.keywords}
     required = {
         "name",
@@ -50,8 +53,6 @@ def test_platform_registration_keeps_bundled_adapter_contract():
         "is_connected",
         "setup_fn",
         "apply_yaml_config_fn",
-        "allowed_users_env",
-        "allow_all_env",
         "cron_deliver_env_var",
         "standalone_sender_fn",
         "max_message_length",
@@ -62,9 +63,16 @@ def test_platform_registration_keeps_bundled_adapter_contract():
         "dashboard_env_vars",
         "env_overrides",
         "env_enable_credentials",
-        "allowlist_suppresses_pairing",
     }
     assert required <= names
+    assert any(
+        keyword.arg is None
+        and isinstance(keyword.value, ast.Attribute)
+        and isinstance(keyword.value.value, ast.Name)
+        and keyword.value.value.id == "gateway_env"
+        and keyword.value.attr == "AUTHZ"
+        for keyword in call.keywords
+    ), "pass the bundled AUTHZ mapping so new authorization fields are not silently lost"
 
 
 def test_dm_approval_cards_are_explicitly_advertised():
@@ -75,6 +83,41 @@ def test_dm_approval_cards_are_explicitly_advertised():
         isinstance(node, ast.Return) and isinstance(node.value, ast.Constant) and node.value.value is True
         for node in ast.walk(method)
     )
+
+
+def test_exec_approval_cards_are_bound_to_the_request_that_created_them():
+    tree = ast.parse((ROOT / "adapter.py").read_text(encoding="utf-8"))
+    adapter = _class(tree, "MattermostApprovalAdapter")
+    sender = _method(adapter, "send_exec_approval")
+    signature_names = {arg.arg for arg in sender.args.args + sender.args.kwonlyargs}
+    assert "request_id" in signature_names
+
+    action_contexts = []
+    for node in ast.walk(sender):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = {
+            key.value for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        if "action" in keys and "session_key" in keys:
+            action_contexts.append(keys)
+    assert len(action_contexts) == 4, "all four approval/deny buttons must carry callback context"
+    assert all("request_id" in keys for keys in action_contexts)
+
+    callback = _method(adapter, "_handle_callback")
+    resolver_calls = [
+        node for node in ast.walk(callback)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "resolve_gateway_approval"
+    ]
+    assert len(resolver_calls) == 1
+    assert any(keyword.arg == "request_id" for keyword in resolver_calls[0].keywords)
+    assert isinstance(resolver_calls[0].func, ast.Name)
+    assert resolver_calls[0].func.id == "resolve_gateway_approval"
+    callback_source = ast.unparse(callback)
+    assert "if request_id else 0" in callback_source, "missing request IDs must fail closed, not fall back to FIFO"
 
 
 def test_model_switch_writes_through_for_gateway_restart_rehydration():

@@ -32,59 +32,10 @@ from typing import Any, Dict, Optional, Tuple
 from gateway.platforms.base import SendResult
 from tools.approval import resolve_gateway_approval
 
-# Mattermost 基础适配器已从 gateway/platforms/ 移至 bundled plugin
-# (hermes-agent/plugins/platforms/mattermost/)。
-#
-# 插件系统会先加载 bundled mattermost-platform 为
-# hermes_plugins.platforms_mattermost，然后才加载 mattermost-enhancer。
-# 正常场景下 try 分支即命中；fallback 仅在非标准环境（如直接 pytest）下触发。
-try:
-    from hermes_plugins.platforms_mattermost.adapter import MattermostAdapter
-except ImportError:
-    # Plugin Doctor loads a temporary copy of the enhancer without copying the
-    # bundled platform plugins. Resolve the live Hermes checkout through
-    # hermes_cli first, then retain the historical relative-path fallback for
-    # direct pytest/import use.
-    import importlib.util
-    import sys
-    from pathlib import Path as _Path
-
-    _bundled_candidates = []
-    try:
-        import hermes_cli as _hermes_cli
-        _hermes_root = _Path(_hermes_cli.__file__).resolve().parents[1]
-        _bundled_candidates.append(_hermes_root / "plugins" / "platforms" / "mattermost")
-    except Exception:
-        pass
-    _bundled_candidates.append(
-        _Path(__file__).resolve().parent.parent.parent
-        / "hermes-agent" / "plugins" / "platforms" / "mattermost"
-    )
-    _bundled_mm = next(
-        (candidate for candidate in _bundled_candidates if (candidate / "__init__.py").exists()),
-        None,
-    )
-    _init = _bundled_mm / "__init__.py" if _bundled_mm else None
-    if _init and _init.exists():
-        import types as _types
-        if "hermes_plugins" not in sys.modules:
-            _ns = _types.ModuleType("hermes_plugins")
-            _ns.__path__ = []
-            sys.modules["hermes_plugins"] = _ns
-        _spec = importlib.util.spec_from_file_location(
-            "hermes_plugins.platforms_mattermost",
-            _init,
-            submodule_search_locations=[str(_bundled_mm)],
-        )
-        if _spec and _spec.loader:
-            _mod = importlib.util.module_from_spec(_spec)
-            sys.modules["hermes_plugins.platforms_mattermost"] = _mod
-            _spec.loader.exec_module(_mod)
-            from hermes_plugins.platforms_mattermost.adapter import MattermostAdapter  # noqa: F811
-        else:
-            raise ImportError("Unable to load bundled Mattermost adapter")
-    else:
-        raise ImportError("Bundled Mattermost adapter checkout is unavailable")
+# Hermes loads the bundled Mattermost platform package before this plugin, so
+# use its canonical Python package path. Tests that run outside Hermes stub
+# that package explicitly.
+from plugins.platforms.mattermost.adapter import MattermostAdapter
 
 from .cards import (
     render_model_selector_card,
@@ -1064,7 +1015,15 @@ class MattermostApprovalAdapter(MattermostAdapter):
         # 第一层防护：_is_duplicate_click（post_id+action 去重，入口已做）。
         # 第二层：resolve_gateway_approval 本身线程安全且幂等
         # （count==0 表示已处理），此处只做结果标注。
-        count = resolve_gateway_approval(session_key, choice)
+        # Bind each button to the exact approval that created it. A stale card
+        # must never approve the next queued dangerous command in this session.
+        # Cards created before request IDs were attached fail closed. Falling
+        # back to FIFO would let an old/stale card approve a newer command.
+        request_id = context.get("request_id")
+        count = (
+            resolve_gateway_approval(session_key, choice, request_id=request_id)
+            if request_id else 0
+        )
         if count == 0:
             # 审批已被处理（重复点击）— 仍然返回 update 清空卡片按钮
             # 防止用户继续点击看到 "No pending approval found" 错误
@@ -1386,12 +1345,13 @@ class MattermostApprovalAdapter(MattermostAdapter):
         chat_id: str,
         command: str,
         session_key: str,
-        description: str = "dangerous command",
+        description: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        user_id: Optional[str] = None,
         allow_permanent: bool = True,
         allow_session: bool = True,
         smart_denied: bool = False,
+        request_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> SendResult:
         """发送按钮式审批提示到用户 DM.
 
@@ -1404,6 +1364,8 @@ class MattermostApprovalAdapter(MattermostAdapter):
             allow_session: True → 显示 "Allow Session" 按钮
             smart_denied: True → 追加 owner override 提示（仅本次生效）
         """
+        if description is None:
+            description = "dangerous command"
         if smart_denied:
             description += "（Owner override，仅本次生效）"
         if not user_id:
@@ -1453,6 +1415,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
                             "command": command,
                             "reason": description,
                             "chat_id": chat_id,
+                            "request_id": request_id,
                         },
                     },
                 },
@@ -1471,6 +1434,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
                             "command": command,
                             "reason": description,
                             "chat_id": chat_id,
+                            "request_id": request_id,
                         },
                     },
                 })
@@ -1488,6 +1452,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
                             "command": command,
                             "reason": description,
                             "chat_id": chat_id,
+                            "request_id": request_id,
                         },
                     },
                 })
@@ -1504,6 +1469,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
                         "command": command,
                         "reason": description,
                         "chat_id": chat_id,
+                        "request_id": request_id,
                     },
                 },
             })
