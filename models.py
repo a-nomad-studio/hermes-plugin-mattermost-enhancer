@@ -18,6 +18,44 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def _get_custom_providers(config: dict) -> List[dict]:
+    """获取自定义 provider 列表，兼容 v12+ providers 字典与 legacy custom_providers 列表。"""
+    try:
+        from hermes_cli.config import get_compatible_custom_providers
+        cps = get_compatible_custom_providers(config)
+        if cps:
+            return cps
+    except Exception:
+        pass
+
+    cps = []
+    # 1. legacy custom_providers (list)
+    legacy = config.get("custom_providers", [])
+    if isinstance(legacy, list):
+        cps.extend(legacy)
+
+    # 2. v12+ providers (dict)
+    providers_dict = config.get("providers", {})
+    if isinstance(providers_dict, dict):
+        for name, pcfg in providers_dict.items():
+            if not isinstance(pcfg, dict):
+                continue
+            if any((cp.get("name") or cp.get("slug")) == name for cp in cps):
+                continue
+            entry = {
+                "name": name,
+                "base_url": pcfg.get("base_url") or pcfg.get("api") or pcfg.get("url") or "",
+                "api_key": pcfg.get("api_key") or "",
+                "api_mode": pcfg.get("api_mode") or "chat_completions",
+                "models": pcfg.get("models") or {},
+            }
+            if pcfg.get("display_name"):
+                entry["display_name"] = pcfg["display_name"]
+            cps.append(entry)
+
+    return cps
+
+
 def get_available_models() -> List[str]:
     """从 config.yaml 的 custom_providers 获取所有可用模型名称。
 
@@ -34,9 +72,8 @@ def get_available_models() -> List[str]:
         if default_model:
             model_ids.append(default_model)
 
-        # 2. custom_providers 的 models 白名单
-        custom_providers = config.get("custom_providers", [])
-        for cp in custom_providers:
+        # 2. custom_providers / providers 的 models 白名单
+        for cp in _get_custom_providers(config):
             models_map = cp.get("models", {})
             if isinstance(models_map, dict):
                 model_ids.extend(models_map.keys())
@@ -81,8 +118,8 @@ def get_models_by_provider() -> List[Tuple[str, str, List[str]]]:
         default_model = config.get("model", {}).get("default", "")
         default_provider = config.get("model", {}).get("provider", "")
 
-        # custom_providers
-        for cp in config.get("custom_providers", []):
+        # custom_providers / providers
+        for cp in _get_custom_providers(config):
             name = cp.get("name", "") or cp.get("slug", "")
             display = cp.get("display_name", "") or name
             is_default = (default_provider in (name, f"custom:{name}"))
@@ -135,7 +172,7 @@ def get_models_by_provider() -> List[Tuple[str, str, List[str]]]:
 
 
 def resolve_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
-    """从 custom_providers 中解析指定 provider 的连接配置。
+    """从 custom_providers / providers 中解析指定 provider 的连接配置。
 
     返回: {"base_url": ..., "api_key": ..., "api_mode": ..., "provider": ...}
     如果 provider_name 是 default model 的 provider，从 model config 中读取。
@@ -144,20 +181,28 @@ def resolve_provider_config(provider_name: str) -> Optional[Dict[str, str]]:
         from hermes_cli.config import load_config
         config = load_config()
 
-        # 优先查 custom_providers
-        for cp in config.get("custom_providers", []):
+        # 优先查 custom_providers / providers
+        for cp in _get_custom_providers(config):
             name = cp.get("name", "") or cp.get("slug", "")
-            if name == provider_name:
+            if name == provider_name or f"custom:{name}" == provider_name:
                 api_key = cp.get("api_key", "")
                 # api_key 可能是 ${ENV_VAR} 格式
                 if api_key and api_key.startswith("${") and api_key.endswith("}"):
+                    var_name = api_key[2:-1]
                     import os
-                    api_key = os.environ.get(api_key[2:-1], "")
+                    api_key = os.environ.get(var_name, "")
+                    if not api_key:
+                        try:
+                            from hermes_cli.config import load_env
+                            api_key = load_env().get(var_name, "")
+                        except Exception:
+                            pass
+                prov_str = name if not provider_name.startswith("custom:") and name in config.get("providers", {}) else f"custom:{name}"
                 return {
                     "base_url": cp.get("base_url", ""),
                     "api_key": api_key,
                     "api_mode": cp.get("api_mode", "") or "chat_completions",
-                    "provider": f"custom:{name}",
+                    "provider": prov_str,
                 }
 
         # 回退到 model config (default provider)
@@ -180,7 +225,7 @@ def _resolve_provider_for_model(model_id: str) -> str:
     """根据 model_id 解析 provider name。
 
     策略：
-      1. 遍历 custom_providers，查找 models 字段中包含该 model_id 的 provider
+      1. 遍历 custom_providers / providers，查找 models 字段中包含该 model_id 的 provider
       2. 匹配 name 字段（非 slug）
       3. 回退到 model_id 前缀
     """
@@ -188,12 +233,18 @@ def _resolve_provider_for_model(model_id: str) -> str:
         from hermes_cli.config import load_config
         config = load_config()
 
-        custom_providers = config.get("custom_providers", [])
+        custom_providers = _get_custom_providers(config)
         for cp in custom_providers:
             name = cp.get("name", "") or cp.get("slug", "")
             models_map = cp.get("models", {})
             if isinstance(models_map, dict) and model_id in models_map:
                 return name
+            if isinstance(models_map, list):
+                for m in models_map:
+                    if isinstance(m, dict) and m.get("name") == model_id:
+                        return name
+                    if m == model_id:
+                        return name
             if cp.get("model") == model_id:
                 return name
 
