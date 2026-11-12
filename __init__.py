@@ -11,9 +11,51 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _apply_yaml_config_enhancer(yaml_cfg: dict, mattermost_cfg: dict) -> dict | None:
+    """``apply_yaml_config_fn``: 扩展内置 YAML 桥接，支持 task_progress / tool_progress 配置。"""
+    import os
+    from plugins.platforms.mattermost.adapter import _apply_yaml_config
+    from .adapter import _get_configured_task_progress, _resolve_task_progress_setting
+
+    seeded = _apply_yaml_config(yaml_cfg, mattermost_cfg) or {}
+
+    raw_val = None
+    for key in ("task_progress", "tool_progress", "progress"):
+        if key in mattermost_cfg and mattermost_cfg[key] is not None:
+            raw_val = mattermost_cfg[key]
+            seeded[key] = raw_val
+            break
+
+    if raw_val is not None and not os.getenv("MATTERMOST_TASK_PROGRESS"):
+        os.environ["MATTERMOST_TASK_PROGRESS"] = "on" if _resolve_task_progress_setting(raw_val) else "off"
+
+    # 同步动态更新 platform_registry 中 mattermost 的 display_overrides
+    is_on = _get_configured_task_progress()
+    try:
+        from gateway.platform_registry import platform_registry
+        entry = platform_registry.get("mattermost")
+        if entry is not None:
+            if not is_on:
+                entry.display_overrides["tool_progress"] = "off"
+                entry.display_overrides["thinking_progress"] = "off"
+            else:
+                if entry.display_overrides.get("tool_progress") == "off":
+                    entry.display_overrides.pop("tool_progress", None)
+                if entry.display_overrides.get("thinking_progress") == "off":
+                    entry.display_overrides.pop("thinking_progress", None)
+    except Exception as e:
+        logger.debug("Failed to sync display_overrides for mattermost: %s", e)
+
+    return seeded or None
+
+
 def register(ctx):
     """Plugin entry point — called by Hermes plugin system at startup."""
-    from .adapter import MattermostApprovalAdapter
+    from .adapter import (
+        MattermostApprovalAdapter,
+        _get_configured_task_progress,
+        _resolve_task_progress_setting,
+    )
     from .callback_server import check_mattermost_requirements
 
     # Reuse the bundled plugin's infrastructure so that the enhancer's
@@ -32,6 +74,13 @@ def register(ctx):
         _PLATFORM_HINT,
     )
     from plugins.platforms.mattermost import gateway_env
+    task_progress_on = _get_configured_task_progress()
+    display_overrides = {}
+    if not task_progress_on:
+        display_overrides = {
+            "tool_progress": "off",
+            "thinking_progress": "off",
+        }
 
     ctx.register_platform(
         name="mattermost",
@@ -49,7 +98,7 @@ def register(ctx):
             " MATTERMOST_TOKEN=xxx MATTERMOST_CALLBACK_BIND=0.0.0.0"
         ),
         setup_fn=interactive_setup,
-        apply_yaml_config_fn=_apply_yaml_config,
+        apply_yaml_config_fn=_apply_yaml_config_enhancer,
         cron_deliver_env_var="MATTERMOST_HOME_CHANNEL",
         standalone_sender_fn=_standalone_send,
         max_message_length=MAX_POST_LENGTH,
@@ -57,6 +106,7 @@ def register(ctx):
         allow_update_command=True,
         platform_hint=_PLATFORM_HINT,
         display_tier="medium",
+        display_overrides=display_overrides,
         dashboard_description="Connect Hermes to Mattermost channels and direct messages.",
         docs_url="https://mattermost.com/deploy/",
         dashboard_env_vars=("MATTERMOST_URL", "MATTERMOST_TOKEN", "MATTERMOST_ALLOWED_USERS"),

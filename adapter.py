@@ -49,6 +49,28 @@ from .cards import (
 
 logger = logging.getLogger(__name__)
 
+_FALSY_VALUES = frozenset({"off", "false", "0", "no"})
+
+
+def _resolve_task_progress_setting(val: Any) -> bool:
+    """Resolve task progress toggle. Default is True (on)."""
+    if val is None:
+        return True
+    if isinstance(val, bool):
+        return val
+    s = str(val).strip().lower()
+    return s not in _FALSY_VALUES
+
+
+def _get_configured_task_progress() -> bool:
+    """Read task progress setting from environment (with aliases)."""
+    val = (
+        os.getenv("MATTERMOST_TASK_PROGRESS")
+        or os.getenv("MATTERMOST_TOOL_PROGRESS")
+        or os.getenv("MATTERMOST_PROGRESS")
+    )
+    return _resolve_task_progress_setting(val)
+
 
 class MattermostApprovalAdapter(MattermostAdapter):
     """Mattermost 适配器 — DM 审批 + /model 卡片 + /new 确认。"""
@@ -122,6 +144,17 @@ class MattermostApprovalAdapter(MattermostAdapter):
         self._branch_inflight: set = set()
         self._branch_done: Dict[str, float] = {}
         self._branch_tasks: set = set()
+        # 任务进度状态（工具执行与思考过程）：默认 on，off 时隐藏中间执行过程
+        extra_cfg = getattr(config, "extra", {}) if hasattr(config, "extra") and isinstance(config.extra, dict) else {}
+        raw_progress = (
+            extra_cfg.get("task_progress")
+            or extra_cfg.get("tool_progress")
+            or extra_cfg.get("progress")
+            or os.getenv("MATTERMOST_TASK_PROGRESS")
+            or os.getenv("MATTERMOST_TOOL_PROGRESS")
+            or os.getenv("MATTERMOST_PROGRESS")
+        )
+        self._task_progress: bool = _resolve_task_progress_setting(raw_progress)
 
     # ══════════════════════════════════════════════════════════════════════
     # 公共辅助方法

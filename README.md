@@ -10,175 +10,143 @@ Makes your Hermes AI assistant smarter, safer, and easier to use inside Mattermo
 
 ---
 
-## 😵‍💫 What Is This?
+## 💡 What Is This?
 
-**In one sentence:** If you use Hermes in Mattermost, this plugin makes everything work better.
+**In one sentence:** If you use Hermes AI Assistant in Mattermost, this plugin brings you all the native interaction capabilities you've been missing.
 
-Hermes is an AI assistant you chat with in Mattermost to get things done. But the vanilla Hermes has some rough edges — it runs dangerous commands without asking, switching AI models requires editing config files, the WebSocket keeps disconnecting…
+Vanilla Hermes is great in a terminal or web UI, but inside Mattermost chat it lacks crucial interaction features — you cannot switch models directly, dangerous commands run without confirmation cards, long tasks flood the chat with progress bubbles, and you cannot branch conversations from past messages like in modern AI desktop apps.
 
-This plugin "retrofits" these capabilities onto Hermes so everything just feels right.
-
----
-
-## ✨ What Can It Do?
-
-### 🛡️ 1. Dangerous Command Approval (DM Card Confirmation)
-
-**Scenario:** You ask Hermes to run a command like `rm -rf some-folder` or `DROP TABLE`. Once executed, there's no undo — if the AI misunderstood you, the consequences are real.
-
-**Before:** Hermes runs it instantly. You only see the result in chat — too late to stop it 😱
-
-**Now:** When Hermes is about to execute a dangerous command, it won't act immediately. It sends you a **private DM confirmation card** with 4 buttons:
-
-| Button | Effect |
-|--------|--------|
-| **Allow Once** | Approve this time only; ask again next time |
-| **Allow This Session** | Approve for the rest of this conversation |
-| **Always Allow** | Never require approval for this command again |
-| **Deny** | Refuse — don't run it |
-
-![Approval card effect](images/approve.webp)
-
-The choice takes effect immediately and the card disappears. Each card is bound to the exact pending command that created it; if that command has already been handled or timed out, its stale card cannot accidentally approve the next command in the same session. Everything happens inside Mattermost, no window switching.
+This plugin bridges Hermes with Mattermost's native capabilities, delivering a fluid AI conversational experience on desktop, mobile, and web.
 
 ---
 
-### 🧠 2. Switch AI Models (`/model` Command)
+## ✨ Core Features (Ranked by Utility)
 
-**Scenario:** You have multiple AI models available — some excel at coding, some at conversation, some are cheaper, some faster. You want to pick the right model for each task.
+### 🧠 1. Switch AI Models Anytime (`/model` Command & Channel Inheritance)
 
-**Before:** You had to edit `~/.hermes/config.yaml` and restart the Gateway — tedious 💀
-
-**Now:** Type `/model` in any Thread and a dropdown card appears:
+**Pain Point & Improvement:**
+- **Pain Point:** Different tasks require different models (coding models for development, lightweight models for casual chat). Previously, switching models meant editing server config files and restarting the gateway — tedious and disruptive 💀
+- **Improvement:** Type `/model` in any Thread or DM, and a dropdown card appears immediately. Pick your model, and **only the current Thread switches instantly** — other conversations remain completely untouched ✅
 
 ![Model switching card effect](images/model.webp)
 
-The dropdown lists all your available models. Pick one — this Thread immediately switches to the new model, **other Threads are unaffected**.
-
-Thread A uses Model X for coding; Thread B uses Model Y for chatting. No interference.
-
-> 💡 **Tip: Channel → Thread Model Inheritance**
->
-> If you first run `/model` in the **channel's main timeline** to pick a model, then hit Reply to create a new Thread, that Thread will **automatically inherit** your chosen model — no need to switch again.
->
-> Example: you type `/model` in `#dev` channel and select `deepseek-v4-pro`, then reply to any message (creating a Thread). That new Thread automatically uses `deepseek-v4-pro`.
->
-> **Threads with an existing model setting are not overwritten.** A Thread without its own model setting attempts to inherit the channel setting when a message arrives. Only the model choice is inherited — **not the conversation history of the channel or other Threads**. Each Thread can still use `/model` independently.
+> 💡 **Channel → Thread Inheritance:**
+> If you run `/model` in a **channel's main chat window**, any subsequent Thread created by clicking reply will **automatically inherit** that model setting. Existing custom-configured Threads will not be overwritten.
 
 ---
 
-### 🧠 3. Adjust Reasoning Effort (`/reasoning` Command)
+### 🛡️ 2. Dangerous Command Safety Approval (DM Confirmation Cards)
 
-**Scenario:** Simple questions do not need a long reasoning pass; complex ones may benefit from spending more time thinking.
+**Pain Point & Improvement:**
+- **Pain Point:** When AI runs destructive commands (deleting files, dropping databases, running dangerous shell commands), a single misunderstanding can cause irreversible damage before you can stop it in chat 😱
+- **Improvement:** For any dangerous action, Hermes sends a **private DM confirmation card** directly to the user who issued the prompt, offering 4 clear options:
+  - **Allow Once** (approve this single execution)
+  - **Allow This Session** (approve for the duration of this session)
+  - **Always Allow** (permanently whitelist this command)
+  - **Deny** (reject execution)
 
-**Before:** Mattermost intercepts messages beginning with `/`, so Hermes never receives `/reasoning` and cannot change the current conversation's reasoning effort.
+![Approval card effect](images/approve.webp)
 
-**Now:** Type `/reasoning high`, `/reasoning low`, or `/reasoning none` to change only the current Mattermost conversation; other Threads remain unchanged. Type `/reasoning` to see the current setting, or `/reasoning reset` to clear the session override and inherit the configured setting again.
-
-Available levels: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, and `ultra`. A model may clamp a requested level to one it supports.
-
-> ⚠️ `/reasoning high --global` changes the global default; omit `--global` for a temporary per-conversation change.
-
-> 📸 `[Screenshot placeholder]` — A Mattermost Thread showing `/reasoning high` and confirmation that the current conversation was updated
+> 🔒 **Precise Requester Routing:** Even in busy multi-user channels, the approval card is routed specifically to the actual requester's DM — never spamming the channel or mistakenly pinging admins.
 
 ---
 
-### 🔄 4. Reset Conversation (`/new` Command)
+### ❓ 3. Decision Guidance & AI Questions (Interactive Cards)
 
-**Scenario:** The conversation has gone off track. You want to keep the same Thread or direct-message window but stop carrying forward the previous conversation context.
+**Pain Point & Improvement:**
+- **Pain Point:** When Hermes needs clarification during complex tasks (e.g. "Found two approaches: A is faster, B is more reliable. Please pick 1 or 2"), plain text questions easily get lost in chat. If missed, Hermes idles indefinitely until timeout 💀
+- **Improvement:** Questions render as **prominent interactive button cards**:
+  - Click any choice button to confirm instantly; the card updates in-place with a checkmark ✅
+  - Click "✍️ Other" to type free-form feedback directly in chat
+  - Open-ended prompts display clean instruction text, ready for direct text replies
 
-**Now:** Type `/new` **inside the Thread or direct message (DM) you want to reset**. A confirmation card appears:
+![AI questions card effect](images/clarify.webp)
+
+---
+
+### 🌿 4. Fork Conversations from Any Message (🆕 Reaction Branching)
+
+**Pain Point & Improvement:**
+- **Pain Point:** 10 turns deep into debugging, you realize you'd like to return to turn 3 and explore a different approach. Clearing context loses everything; cloning the whole conversation creates mess 💀
+- **Improvement:** React to any historical message with a 🆕 (`:new:`) emoji. Hermes automatically creates a **brand-new sibling Thread** rooted at that message, carrying forward conversation history up to that point. The original Thread remains intact, allowing parallel exploration without conflict ✅
+
+| Reacted Message | Inherited History | Typical Use Case |
+| :--- | :--- | :--- |
+| **Your Prompt** | History strictly **before** that prompt | "Let me rephrase this question" or "test with different parameters" |
+| **Hermes' Reply** | Entire turn up to that reply (including tool calls & outputs) | "Great solution; let's explore another direction based on this result" |
+
+> 📱 **Native Everywhere:** Long-press on mobile or hover-click on desktop/web — no Mattermost server webapp plugins required.
+
+---
+
+### 🙈 5. Hide Task Thinking & Execution Progress (`task_progress` Toggle)
+
+**Pain Point & Improvement:**
+- **Pain Point:** When Hermes conducts web searches, reads long files, or executes multi-step scripts, intermediate progress bubbles (`🔍 Searching the web for ...`, `📖 Reading file ...`) repeatedly pop up and update. In routine Q&A, this creates visual clutter and chat spam 💀
+- **Improvement:** Provides a `task_progress` configuration (defaults to `on`). Setting it to `off` completely hides intermediate thinking and tool execution messages while keeping the active typing indicator, delivering only the clean final reply ✅
+
+**Configuration (Choose One):**
+- **Method 1: Environment Variable (`~/.hermes/.env`)**
+  ```dotenv
+  MATTERMOST_TASK_PROGRESS=off
+  ```
+- **Method 2: Config File (`~/.hermes/config.yaml`)**
+  ```yaml
+  mattermost:
+    task_progress: off
+  ```
+  *(Restart Gateway after updating)*
+
+---
+
+### 🧠 6. Adjust Reasoning Effort (`/reasoning` Command)
+
+**Pain Point & Improvement:**
+- **Pain Point:** Simple questions don't need deep thinking; complex debugging warrants maximal reasoning. Previously, there was no way to adjust reasoning depth temporarily from chat.
+- **Improvement:** Send commands directly in the Thread to adjust reasoning depth for the current conversation:
+  - `/reasoning low` (quick, light reasoning)
+  - `/reasoning high` (deep, rigorous thinking)
+  - `/reasoning none` (turn reasoning off when model supports it)
+  - `/reasoning` (inspect current session's effective level)
+  - `/reasoning reset` (clear session override and inherit default)
+
+---
+
+### 🔄 7. Reset Current Conversation Context (`/new` Command)
+
+**Pain Point & Improvement:**
+- **Pain Point:** The current Thread has wandered off-topic. You want to keep chatting in the same window without carrying stale context forward.
+- **Improvement:** Type `/new` in any Thread or DM, click the confirmation card, and a fresh conversation session begins immediately.
 
 ![New session card effect](images/new.webp)
 
-After confirming:
-- The conversation starts a new session without carrying forward the old session's chat context; other Threads are unaffected.
-- The current session's model and reasoning-effort overrides are cleared. The next Thread message may still inherit the channel's model, so **returning to the global default model is not guaranteed**.
-- Mattermost chat history is not deleted, and Hermes' long-term memory, persona, and system instructions are not cleared.
-
-#### When Do You Need `/new`?
-
-| Location | Recommendation |
-|---|---|
-| Inside an existing Thread or DM | Use it when you want a fresh start in the same window |
-| Channel main timeline in thread mode (`MATTERMOST_REPLY_MODE=thread`) | **Not needed.** Each new top-level message starts an independent Thread session; just send your message |
-| Channel main timeline in flat mode (`MATTERMOST_REPLY_MODE=off`) | Can reset the accumulating channel-level conversation |
-
-In thread mode, the channel is a container for topics; it does not combine all Thread histories into one shared context. **Running `/new` in the channel's main timeline does not reset any existing Thread or clear all conversations in the channel.** It does clear that user's channel-level model setting, affecting Threads that subsequently need to inherit a model from the channel.
-
-> ⚠️ **Current limitations:** The plugin does not yet use Hermes' complete native reset workflow, so resetting does not guarantee that an already-running task stops immediately. Wait for the task to finish before resetting. If the target session does not exist, the confirmation card may still report that a new session was created even though none was actually created.
+> 💡 In thread mode, sending a new message in the main channel automatically starts a fresh Thread — no need to run `/new`.
 
 ---
 
-### 🗜️ 5. Compress Conversation Context (`/compress` / `/compact`)
+### 🗜️ 8. Compress Long Conversation Context (`/compress` / `/compact`)
 
-**Scenario:** A Thread has been active for a long time. Earlier discussion, tool results, and intermediate work accumulate, leaving less useful context room for the model and affecting speed, cost, and response consistency.
-
-**Before:** You had to open a new Thread or wait until context pressure became a problem 💀
-
-**Now:** Type `/compress` in the current Thread. Hermes condenses older discussion into a summary that preserves key decisions, then continues in the same session.
+**Pain Point & Improvement:**
+- **Pain Point:** After dozens of turns, conversation context nears the model's window limit, degrading speed and increasing token costs.
+- **Improvement:** Run `/compress`, and Hermes summarizes earlier discussions into key takeaways while keeping you in the **same Thread**:
 
 ```text
-/compress
-/compress Preserve the Mattermost plugin architecture, current decisions, and unfinished work
-/compress --preview
-/compress here 4
+/compress                               # Automatic intelligent compression
+/compress focus on architecture and tasks # Custom-focused summary
+/compress --preview                     # Preview compression plan without applying
 ```
 
-- `/compress --preview`: shows the compression plan without changing the conversation
-- `/compress here 4`: compresses older history while preserving the most recent four exchanges verbatim
-- `/compact`: a fully equivalent compatibility alias for `/compress`
-
-Hermes performs the compression through its internal session mechanism and posts the result back to the **same Thread**. If compression is already in progress or there is not enough history, Hermes reports that clearly without silently losing content.
-
 ---
 
-### ⌨️ 6. Typing Indicator
+### 🏷️ 9. Model & Context Reply Footer
 
-**Scenario:** You're waiting for Hermes to reply in a Thread and want to know it's thinking.
+**Pain Point & Improvement:**
+- **Pain Point:** With multiple Threads open, it's easy to forget which model is running in which conversation.
+- **Improvement:** Once enabled, every reply concludes with a subtle monospace footer (e.g. `── deepseek-v4-pro 34% ──`), showing active model and context usage at a glance.
 
-**Before:** The "typing..." indicator appeared at the **channel** level, not in the Thread you're watching. You thought it was stuck 😕
+![Model footnote effect](images/footer.webp)
 
-**Now:** The typing indicator correctly appears in your current Thread — you know it's processing your request ✅
-
-![Typing indicator example](images/typing.webp)
-
----
-
-### ❓ 7. AI Asks You Questions (Interactive Cards)
-
-**Scenario:** Hermes hits a decision point during a complex task — "This file has two processing approaches: A is fast but rough, B is slow but precise. Which one?" Or an open-ended question like "What approach would you prefer?"
-
-**Before:** Hermes drops a plain-text line "Please reply: 1. A 2. B" into the Thread, easily missed in the conversation flow. You don't see it → Hermes hangs waiting 💀
-
-**Now:** When Hermes asks a question, it posts a **prominent interactive card** with clickable buttons for each option. A "✍️ Other" button lets you type a free-form answer:
-
-![AI question interactive card](images/clarify.webp)
-
-- Click an option button → takes effect immediately; the card updates in place, keeping the original question and all options (✅ marks your pick) so history stays reviewable
-- Click "✍️ Other" → card prompts "Type your answer below" — just type in the chat
-- Open-ended questions (no choices) → shows the question text, just type your answer
-
-Everything happens inside Mattermost — no window switching, no commands to memorize.
-
----
-
-### 🏷️ 8. Reply Footer (Model & Context)
-
-**Scenario:** You have multiple Threads open, each potentially using a different AI model. Mid-conversation you think: "Wait, which model is this Thread using?"
-
-**Before:** No such feature. You had to type `/model` and check the dropdown to know 💀
-
-**Now:** Every Hermes reply automatically includes a one-line footnote showing the current model and context usage:
-
-![Model footer effect](images/footer.webp)
-
-Gray monospace footnote — subtle, glanceable. **Especially useful with multiple Threads** — each Thread's footer shows its own model, no confusion.
-
-> 💡 **How to Enable**
->
-> This feature builds on Hermes' built-in `runtime_footer`. Add this to the `display` section of `~/.hermes/config.yaml`:
->
+> 💡 **How to Enable:** In `~/.hermes/config.yaml`, under `display`:
 > ```yaml
 > display:
 >   runtime_footer:
@@ -187,125 +155,38 @@ Gray monospace footnote — subtle, glanceable. **Especially useful with multipl
 >       - model
 >       - context_pct
 > ```
->
-> Then restart the Gateway. Only `model` (model name) and `context_pct` (context usage %) are included — clean and concise.
->
-> If you're using Hermes CLI (not Gateway), you can also toggle it with `/footer on`.
 
-### 🌿 9. Fork Conversations from Any Message (🆕 Reaction Branching)
+---
 
-**Role:** Similar to CodeX or Hermes Desktop's "Branch from message" feature. Allows you to fork an independent parallel conversation line from any historical node during a long discussion to explore alternative approaches or rephrase questions, without discarding your current conversation progress.
+### ⌨️ 10. In-Thread Typing Indicator
 
 **Pain Point & Improvement:**
-- **Pain Point:** You're 10 turns into exploring a solution or debugging and realize you'd like to return to turn 3 and ask differently. In Mattermost, running `/new` wipes all previous context completely; using native `/branch` clones the **entire history** indiscriminately and hijacks the current Thread's binding, leaving no way back to the original line of thought 💀
-- **Improvement:** Simply add a 🆕 (`:new:`) emoji reaction to the target message. Hermes automatically creates a **brand-new sibling Thread** in the current channel, seamlessly copying history up to that cut point. The original Thread remains completely intact, allowing both threads to explore in parallel without interference.
+- **Pain Point:** Vanilla systems post "typing..." indicators at the channel level rather than inside the Thread you're watching, making you think Hermes is stuck or frozen 😕
+- **Improvement:** Correctly routes typing indicators into the active Thread so you know Hermes is actively working on your request ✅
 
-#### Branch Inheritance Rules
+![Typing indicator example](images/typing.webp)
 
-| Reacted Message | Inherited History | New Thread Root Post | Typical Scenario |
+---
+
+## 🐛 Core Issues Solved
+
+| Category | Issue Encountered | User Impact | Plugin Solution |
 | :--- | :--- | :--- | :--- |
-| **Your Prompt** | Everything **before** that prompt (excluding the prompt itself) | Quotes your original prompt text (with permalink back to origin) | "Let me rephrase this question" or tweak parameters and re-send directly in the new thread |
-| **Hermes' Reply** | The **complete turn** up to that reply (including associated tool calls and results) | Displays "Inherited from original message (N turns kept)" with permalink | "Great solution; let's explore a different direction from here" |
-
-#### Key Mechanics & Benefits
-- **Atomic Tool Call Closure:** Cleanly segmented by turn boundaries. Even if the reacted reply executed multiple external tools, all tool calls and their results are cloned together as complete pairs, preventing orphaned context errors.
-- **Seamless Settings Inheritance:** The new branch automatically inherits the current Thread's active AI model and reasoning-effort (Reasoning Effort) configuration.
-- **Universal Mobile & Desktop Support:** Uses native Mattermost emoji reactions. Works instantly on iOS, Android, macOS desktop, and Web browsers **without installing any Mattermost server webapp plugins**.
-
----
-
----
-
-## 🐛 What Bugs Are Fixed?
-
-Below are 11 bugs fixed by this project (plugin + companion shell script). Each includes the **real-world impact** so you can tell if you've encountered them.
-
-| # | Bug Description | Real-World Impact | After Fix | Implementation |
-|---|----------------|-------------------|-----------|---------------|
-| **1** | Typing indicator at wrong level: the "typing..." indicator appears at the channel while Hermes is thinking in a Thread | You wait in a Thread with no typing feedback | Typing correctly appears in the current Thread | Adapter Override |
-| **2** | Missing file spam: Hermes posts long error messages when an image/file can't be found | Chat flooded with errors, disrupting conversation | Silently skipped — no noise | Fixed upstream |
-| **3** | AI questions too subtle: Hermes asks a question (multiple choice or open-ended) as plain text, easily missed in the conversation flow | You miss the question → no response → AI times out → also triggers a session split 💀 | Questions rendered as interactive cards with buttons — prominent and clickable | Adapter Override |
-| **4** | WebSocket frequent disconnects: Mattermost WebSocket disconnects every ~50s (close 258) | Brief message loss, duplicate messages, reply lag | Heartbeat optimized to 15s, connection stable | Adapter Override |
-| **5** | Media not routed to Thread: generated images/audio/video/documents appear in the main channel instead of the current Thread | You ask for an image in a Thread → image pops up in the channel, breaking the conversation flow 💀 | All media (images, audio, video, documents) correctly appear in the current Thread | ~~Adapter Override~~ Fixed upstream (v2026.7.30+) |
-| **6** | DM approval missing user_id: Hermes can't determine which user to send the approval DM to | Approval cards may not arrive; dangerous commands may execute without approval | user_id properly passed; cards delivered on time | Adapter Override |
-| **7** | Tool progress not routed to Thread: multi-step task progress ("Searching...", "Reading file...") only appears in the main channel | You wait in a Thread with zero visibility into progress — result just pops out at the end 💀 | Progress messages correctly appear in the current Thread; you see every step in real time | ~~Shell Patch~~ Fixed upstream |
-| **8** | Session split (AI amnesia): When AI is waiting for your clarify reply, your next message starts a new conversation — AI forgets everything | You're chatting fine in Thread A, then suddenly AI doesn't recognize you and gives random answers | Messages correctly delivered to the waiting AI; no new session created | Shell Patch (E-P2) |
-| **9** | Clarify concurrency guard: during clarify waiting, simultaneously arriving messages can bypass the session guard and create duplicate sessions | Two AI agents start responding to the same Thread — confusing duplicate replies | Intercepted at session guard before a new session spawns | ~~Shell Patch~~ Fixed upstream |
-| **10** | Auto-resume session leaking: after Gateway restart, multiple Thread sessions in the same channel auto-resume simultaneously, responses cross between Threads | You see unrelated AI responses appearing in the wrong Thread after a restart | Deduplicates to most recent session per channel; Threads stay isolated | Shell Patch (E-P4) |
-| **11** | Response fragmentation: AI replies split into multiple messages | One reply arrives as several messages | Upstream changed commentary handling; the old merge patch is no longer maintained | Upstream behavior changed |
-
-> 💡 **Bug #11** is historical. The current Hermes core script retains fixes for ghost code fences, MiniMax parameters, and cross-thread interruption routing; run its `check` command for the live status.
-
----
-
----
-
-## 🧱 Plugin vs. Companion Script — How to Understand It?
-
-You may have noticed this project contains both a **plugin** and a **companion shell script** (`scripts/hermes-mattermost-enhancer.sh`). Here's a plain-language explanation.
-
-### How Hermes Works
-
-Think of Hermes as an **intelligent robot** 👤:
-
-```
-You ──→ Mattermost ──→ Hermes Gateway (robot hub) ──→ AI Brain
-                              │
-                              ├── Plugin: adds new skills to the robot
-                              └── Source code: the robot's "skeleton" — can't change
-```
-
-### What the Plugin Can (and Can't) Do
-
-A plugin is like installing an app on your phone — it adds features and improves the experience, but can't modify the phone's operating system.
-
-- ✅ **What the plugin can change:** How the robot "replies to you" (adapter methods) — Bugs #1-6 are all implemented via adapter overrides and take effect automatically when the plugin is installed
-- ❌ **What the plugin can't touch:** How the robot "gets woken up" (caller-side code) — this is deep in Hermes' source code
-
-Bugs marked **Shell Patch** in the table above (#7-10) are exactly in that untouchable caller-side code.
-
-### What the Companion Script Does
-
-It fixes those plugin-unreachable bugs by modifying Hermes' source files with minimal changes:
-
-- **Companion script** (`scripts/hermes-mattermost-enhancer.sh`): Gateway-level patches specific to Mattermost interaction — clarify session handling (E-P2), auto-resume dedup (E-P4). Retired with upstream releases: E-P1 (progress in Thread), E-P3 (concurrency guard), E-P5 (status routing)
-- **Main script** (`~/.hermes/scripts/hermes-patches.sh`): Cross-platform fixes such as ghost code fences, MiniMax parameters, and cross-thread interruption routing.
-
-> ⚠️ **Status:** These patches are maintained as local fixes. Some have been submitted upstream but are not yet merged into official Hermes releases. Running `check` after each Hermes upgrade is recommended — once upstream merges them, the scripts will report "already applied" and you can skip them.
->
-> ⚠️ **The companion script does not restart the Gateway for you:** it contains no restart call (restarting from inside the gateway session is blocked by Hermes' safety hook, which would kill the whole script). After `apply`, restart the Gateway manually from an external terminal.
-
-![Patch script output](images/patch.webp)
-
-### Which One Do I Need?
-
-**All three.** Install the plugin (adapter overrides + features), then run both scripts for the low-level bug fixes:
-
-```bash
-# 1. Plugin (adapter overrides — #1-6)
-hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
-
-# 2. Companion script (Mattermost Gateway patches — #7-10)
-cd ~/.hermes/plugins/mattermost-enhancer
-./scripts/hermes-mattermost-enhancer.sh apply
-
-# 3. Main script (platform-agnostic fixes — #11 + CLI fixes)
-~/.hermes/scripts/hermes-patches.sh apply
-```
-
-> 💡 In the future, Hermes upstream may merge these fixes in, making the scripts unnecessary. Running `check` will then show "already applied" and you can ignore them.
-
----
+| **Command Routing** | Slash commands intercepted by Mattermost | Commands like `/model` and `/new` error out in chat | Dedicated local callback server routes commands smoothly |
+| **Status Feedback** | Typing indicator displayed in wrong place | User sees no feedback in Thread, assuming bot is frozen | Typing indicator accurately routed to current Thread footer |
+| **Safety Approval** | Multi-user approval sent to wrong person | Dangerous commands run by members sent approval DM to admin | Precise sender tracking routes cards to actual requester |
+| **Network Stability** | WebSocket frequent disconnects | Reconnect loops every ~50s causing dropped or delayed messages | Heartbeat optimized to 15s for rock-solid connection |
+| **Decision Prompting** | Plain text questions buried in stream | Critical clarify questions missed, stalling background tasks | Interactive button cards with optional custom text entry |
+| **Branching** | Inability to fork from past messages | Cannot branch alternative exploration without losing context | Native 🆕 reaction branching creates clean sibling Threads |
 
 ---
 
 ## 🚀 Quick Start (4 Steps)
 
 ### Prerequisites
-
-- ✅ Running [Hermes Agent](https://github.com/nousresearch/hermes-agent) (v0.23.0+)
-- ✅ Mattermost server with Bot account configured
-- ✅ Python 3.11+
+- ✅ [Hermes Agent](https://github.com/nousresearch/hermes-agent) installed (version ≥ v0.23.0)
+- ✅ Active Mattermost server with a configured Bot account
+- ✅ Python 3.11+ environment
 
 ---
 
@@ -315,282 +196,114 @@ cd ~/.hermes/plugins/mattermost-enhancer
 hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
 ```
 
-### Step 2: Register Mattermost Slash Commands
+---
 
-Open **Product menu → Integrations → Slash Commands** and add the commands you need. Enter the trigger word **without** the slash (for example, `reasoning`); users type it as `/reasoning` in chat. We recommend registering all five:
+### Step 2: Register Mattermost Custom Slash Commands
 
-| Command | Request URL | Purpose |
-|---------|-------------|---------|
-| `/model` | `http://<your-hermes-host>:18065/mm-command` | Switch AI model |
-| `/new` | `http://<your-hermes-host>:18065/mm-command` | Reset the current conversation; in thread mode, use it inside a Thread or DM |
-| `/reasoning` | `http://<your-hermes-host>:18065/mm-command` | View or change reasoning effort for the current conversation |
-| `/compress` | `http://<your-hermes-host>:18065/mm-command` | Compress current conversation context |
-| `/compact` | `http://<your-hermes-host>:18065/mm-command` | Compatibility alias for `/compress` |
+In Mattermost, go to **Product menu → Integrations → Slash Commands** and add the following (Request Method: **POST**):
 
-> 🔧 If Mattermost and Hermes are on the same machine (Docker deployment), use `http://host.docker.internal:18065/mm-command`
+| Trigger Word (no slash) | Display Title | Request URL |
+| :--- | :--- | :--- |
+| `model` | Switch AI Model | `http://<Hermes-Host-IP>:18065/mm-command` |
+| `new` | Reset Conversation | `http://<Hermes-Host-IP>:18065/mm-command` |
+| `reasoning` | Adjust Reasoning Effort | `http://<Hermes-Host-IP>:18065/mm-command` |
+| `compress` | Compress Conversation Context | `http://<Hermes-Host-IP>:18065/mm-command` |
+| `compact` | Compress Context (Alias) | `http://<Hermes-Host-IP>:18065/mm-command` |
 
-Set each command's request method to **POST**. After saving, copy the token Mattermost displays and map it to that command in `MATTERMOST_SLASH_COMMAND_TOKENS`. The new version validates the token before dispatching any command through the shared `/mm-command` endpoint: **only commands you actually register need an entry, but every registered command must have its own token**. For example, if you only register `/reasoning`, configure at least `reasoning=your-copied-token`; if you also register `/model`, `/new`, `/compress`, or `/compact`, configure each command's own token too.
+> 🔧 **Docker Tip:** When Mattermost runs in Docker and Hermes runs on host, use: `http://host.docker.internal:18065/mm-command`.
+
+After saving, copy the generated token for each command.
+
+---
 
 ### Step 3: Configure Environment Variables
 
-Open `~/.hermes/.env` and add:
+Add to `~/.hermes/.env`:
 
-```bash
-# ═══ Required ═══
-# Callback server bind address and port
+```dotenv
+# ── Callback Server ──
 MATTERMOST_CALLBACK_BIND=0.0.0.0
 MATTERMOST_CALLBACK_PORT=18065
 
-# Callback URL — Mattermost uses this to send button clicks / dropdown selections back to Hermes
-# 🔧 Docker deployment (Mattermost in container): MUST use host.docker.internal
+# ── Callback URL (for Mattermost to reach host) ──
+# Docker setup requires host.docker.internal:
 MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
-# 💻 Local deployment (Mattermost + Hermes on same machine, no Docker):
-#    Can leave blank — plugin auto-falls-back to http://127.0.0.1:18065/mattermost/callback
 
-# ═══ Strongly recommended ═══
-# HMAC signature verification. Configure this whenever the callback endpoint is
-# reachable from a Docker network or another device.
-# Generate one with: openssl rand -hex 32
+# ── Security Secret (Recommended 32-char random string) ──
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
-# ═══ Slash command authentication (required) ═══
-# Copy the Token shown for each custom Slash Command in Mattermost.
-# Format: command=token; separate commands with semicolons.
-# This example assumes all five commands are registered; keep only the commands you use.
-# Never commit real tokens.
-MATTERMOST_SLASH_COMMAND_TOKENS="model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token"
+# ── Slash Command Tokens (Map triggers to copied tokens) ──
+MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;reasoning=token3;compress=token4;compact=token5"
+
+# ── Optional: Task Progress Display (Default: on; set off to hide tool bubbles) ──
+# MATTERMOST_TASK_PROGRESS=on
+
+# ── Optional: Branch Reaction Emoji (Default: new; set off to disable) ──
+# MATTERMOST_BRANCH_EMOJI=new
 ```
 
-If you only register `/reasoning`, the minimal configuration is:
+---
 
-```dotenv
-MATTERMOST_SLASH_COMMAND_TOKENS="reasoning=token-copied-from-mattermost"
-```
-
-> ⚠️ If you're like most self-hosting users with Mattermost running in Docker, **`MATTERMOST_CALLBACK_URL` must be set**. Without it, the Docker container can't reach Hermes on the host machine.
->
-> 🔐 Slash-command tokens and `MATTERMOST_CALLBACK_SECRET` are separate credentials: `/mm-command` uses `MATTERMOST_SLASH_COMMAND_TOKENS`; interactive-card callbacks use `MATTERMOST_CALLBACK_SECRET`. Restart the Gateway after changing environment variables.
->
-> 🔐 Each Slash Command has its own token. The plugin checks it against the command name, so a `/reasoning` token cannot invoke `/new` or another command.
-
-Mattermost normally sends the credential in the Slash Command request's `token` form field; the plugin also accepts `Authorization: Token TOKEN_VALUE`. Set each variable entry to the token for its trigger word; do not share these tokens in chat, screenshots, or source control.
-
-### Step 4: Run Companion Script + Restart
-
-**When do you need to run this?**
-- ✅ **First install**: required
-- ✅ **After Hermes upgrade**: upgrades may overwrite source fixes — run `check` to confirm status
-- ✅ **When features act up**: approval cards not arriving, progress messages not in Thread → run `check` to diagnose
-- ❌ **During normal use**: no need to re-run
+### Step 4: Run Companion Script & Restart Gateway
 
 ```bash
 cd ~/.hermes/plugins/mattermost-enhancer
 
-# First, check current status (see if all patches are applied)
+# 1. Check environment & patch status
 ./scripts/hermes-mattermost-enhancer.sh check
-```
 
-If `check` shows patches not applied, run:
-
-```bash
-# Apply patches
+# 2. If prompted, apply companion fixes
 ./scripts/hermes-mattermost-enhancer.sh apply
 
-# You MUST restart the Gateway from an external Terminal / Ghostty window to
-# load the Gateway patches. Do not run this inside a Hermes Mattermost chat.
+# 3. Restart Hermes Gateway in an external terminal
 hermes gateway restart
 ```
 
-> 💡 Don't forget the main script too: `~/.hermes/scripts/hermes-patches.sh apply` for the platform-agnostic fixes.
-
-🎉 **Done!** Now try `/model` or `/reasoning high` in Mattermost, or run a dangerous command to see the approval card.
-
----
-
----
-
-## 📖 Usage Guide
-
-### Switching AI Models
-
-1. Type `/model` in any Thread and send
-2. A dropdown card appears listing all available models
-3. Select the model you want from the dropdown
-4. The current Thread switches immediately — your next question uses the new model
-
-> 💡 Switching only affects the current Thread. Other Threads keep their original model. Want to switch back? Just `/model` again.
-
-### Resetting a Conversation
-
-1. Type `/new` inside the Thread or DM you want to reset and send
-2. A confirmation card appears
-3. Click confirm; subsequent conversation no longer carries forward the old session's chat context
-
-> 💡 In thread mode, start a new topic by sending a message in the channel's main timeline — no `/new` needed. Resetting does not delete chat history or long-term memory. See “Reset Conversation” above for model inheritance and current limitations.
-
-### Adjusting Reasoning Effort
-
-Send one of these commands in the current Thread:
-
-```text
-/reasoning                 # Show the current setting
-/reasoning high            # Use high for this conversation
-/reasoning low             # Use low for this conversation
-/reasoning medium          # Use medium for this conversation
-/reasoning none            # Turn reasoning off for this conversation (if supported)
-/reasoning reset           # Clear this session override and inherit the configured setting
-```
-
-#### Querying the Current Live Value
-
-In the **same Thread**, send the Slash Command without an argument:
-
-```text
-/reasoning
-```
-
-The plugin delegates this to Hermes' native handler, which reports the effective reasoning level and its scope (a current-session override or the global configuration). This is the correct way to query the Gateway's live conversation state.
-
-Do not replace this with a normal message such as “print the current reasoning value.” A normal agent turn can only infer from conversation context or `config.yaml`; it cannot reliably read the Gateway's in-memory session override, so it may show the global default instead of the actual value for the current Thread.
-
-The setting is isolated to the current Mattermost conversation, so different Threads can use different levels. `/reasoning high --global` saves a new global default; use it only when you intentionally want to change the default for all conversations.
-
-### Approving Dangerous Commands
-
-This is automatic — no manual trigger needed.
-
-When Hermes is about to run a dangerous command:
-
-1. You receive an approval card in your **private DM**
-2. Choose one of the buttons:
-   - **Allow Once** — approve this one time
-   - **Allow This Session** — valid for this conversation
-   - **Always Allow** — permanently approve this command
-   - **Deny** — refuse
-3. The button disappears instantly; Hermes receives your decision and acts on it
-
-### AI Asking You Questions
-
-This is also automatic. When Hermes needs you to make a decision:
-
-1. A prominent interactive card appears in the current Thread
-2. Click the option button you want → takes effect immediately
-3. Or click "✍️ Other" → type your answer directly in the chat box
-4. For open-ended questions → no buttons shown, just type your answer
-
-### Viewing the Current Model
-
-This is also automatic — no manual trigger needed.
-
-Once enabled, every Hermes reply ends with a footer showing the current model and context usage, formatted as `── deepseek-v4-pro 34% ──`. A gray monospace footnote that doesn't disrupt reading.
-
-Want to turn it off? Set `display.runtime_footer.enabled` to `false` in `config.yaml` and restart.
-
-### Branching from Any Message (🆕 Reaction)
-
-This is semi-automated — triggered simply by reacting with an emoji, without needing to type any slash commands.
-
-#### 1. How to Use (Step-by-Step)
-1. **Locate Target Node**: In a Thread, find any message you want to branch from (either your own prompt or a Hermes reply).
-2. **Add Trigger Emoji**:
-   - **Desktop / Web**: Hover over the message, click the "Add Reaction" icon in the action bar, type `new`, and select 🆕.
-   - **Mobile (iOS / Android)**: Long-press the target message, open the reaction menu, and select or search for 🆕.
-3. **Confirm Receipt**: Once received, Hermes automatically adds a ✅ reaction to the message you clicked, indicating the new branch is ready.
-4. **Continue Exploring in New Branch**: Look for the newly posted root message in the channel's main timeline. Open that new Thread and reply directly. The original Thread's progress remains intact.
-
-#### 2. Limitations & Boundary Conditions
-1. **No Branching Mid-Run**: If Hermes is currently thinking, executing tools, or streaming a reply in the Thread, reacting with 🆕 will be rejected with an in-thread notification. Wait until the current turn finishes before branching to avoid copying an incomplete state.
-2. **Compressed Historical Messages**: When a conversation is very long and has triggered Hermes' automatic context compression, individual messages that were already summarized away cannot be isolated. The bot will report that the cut point could not be found.
-3. **Authorization Gating**: Only users listed in `MATTERMOST_ALLOWED_USERS` (or authorized by Gateway policy) can trigger branching. Reactions from unauthorized channel members are silently ignored.
-4. **Duplicate Click Protection**: The same message can only be branched once every 30 seconds to prevent duplicates from rapid clicks or WebSocket re-deliveries.
-5. **Channel-Level Flat Posts**: In channel-level mode without threads, all messages belong to the flat stream. Threaded mode is recommended for clean multi-branch navigation.
-
-#### 3. Customizing the Trigger Emoji or Disabling
-The default trigger emoji is `new` (🆕). To change the trigger emoji or turn off the feature, configure `~/.hermes/.env`:
-
-```dotenv
-# Optional: emoji name(s) without colons, comma-separated.
-# Set to "off", "false", or "0" to disable message branching.
-MATTERMOST_BRANCH_EMOJI=new,twisted_rightwards_arrows
-```
-Restart the Gateway from an external terminal after updating the configuration.
-
----
+🎉 **All done!** Try sending `/model` in a Mattermost Thread or react to a message with 🆕!
 
 ---
 
 ## ❓ FAQ
 
-**Q: Why doesn't reacting with 🆕 create a new branch?**
+**Q: Clicking card buttons or typing `/model` has no response?**
+- Verify `MATTERMOST_CALLBACK_URL`. If Mattermost runs in Docker, `127.0.0.1` refers to the container itself; you must use `http://host.docker.internal:18065/mattermost/callback`.
+- Ensure Mattermost's `config.json` has `ServiceSettings.AllowCorsFrom` configured.
 
-A: Check the following:
-1. **Agent Running**: Hermes might currently be thinking or replying in that Thread — wait until the response completes;
-2. **User Authorization**: Ensure your Mattermost username or user ID is listed in `MATTERMOST_ALLOWED_USERS`;
-3. **Feature Disabled**: Check whether `MATTERMOST_BRANCH_EMOJI=off` is set in `~/.hermes/.env`, or the emoji name is misspelled;
-4. **Gateway Restart**: The feature requires restarting the Gateway process after pulling the update.
+**Q: Reacting with 🆕 doesn't branch the conversation?**
+1. Check if Hermes is currently generating a response (branching mid-run is prevented to avoid corrupt history);
+2. Ensure your account is in `MATTERMOST_ALLOWED_USERS`;
+3. Check whether `MATTERMOST_BRANCH_EMOJI=off` is set.
 
-**Q: Do I need to install the plugin and both scripts?**
+**Q: How do I hide intermediate progress bubbles during complex tasks?**
+- Set `MATTERMOST_TASK_PROGRESS=off` in `~/.hermes/.env` (or `task_progress: off` in `config.yaml` under `mattermost:`) and restart the Gateway.
 
-A: Yes. The plugin is the "feature pack"; the scripts are the "bug-fix packs". You need all three components. Scripts only need to run once (`apply`), though you may need to re-run after upgrading Hermes.
-
-**Q: What should I do after upgrading Hermes?**
-
-A: Major Hermes upgrades may overwrite the source fixes. It's recommended to run both `check` commands to verify status:
-```bash
-~/.hermes/scripts/hermes-patches.sh check
-./scripts/hermes-mattermost-enhancer.sh check
-```
-
-If approval falls back to plain `/approve` text after an upgrade and no DM card appears, verify that the Enhancer loaded and that `MattermostApprovalAdapter.supports_exec_approval_buttons()` still returns `True`. Hermes v0.21.3+ uses this capability declaration before it calls the card-sending path.
-
-**Q: Will the scripts mess up my Hermes?**
-
-A: No. They make minimal changes. You can check status anytime with `check`. To revert, simply reinstall Hermes.
-
-**Q: What if I skip the scripts?**
-
-A: Several bugs remain unfixed (those marked "Shell Patch" above: #8, #10):
-- Clarify session split: new messages during clarify waiting create separate sessions (AI forgets everything)
-- After Gateway restart, auto-resumed sessions in the same channel can leak between Threads
-
-The other issues (#7 progress in Thread, #9 concurrency guard) are fixed upstream — no script needed. All adapter-override fixes (#1-6) work normally without the scripts.
-
-**Q: Why doesn't `apply` restart the Gateway automatically?**
-
-A: By design. Hermes' safety hook refuses gateway restarts issued from inside the gateway process; the old script's embedded restart call made even `check` unusable from a gateway session. The new script only applies patches and prints a hint — restart manually from an external terminal.
+**Q: Do I need to reconfigure when upgrading Hermes?**
+- Configurations in `.env` and `config.yaml` persist across updates. After major Hermes upgrades, simply run `./scripts/hermes-mattermost-enhancer.sh check` to verify compatibility.
 
 ---
 
 ## 📁 Project Structure
 
-```
+```text
 mattermost-enhancer/
-├── plugin.yaml              # Plugin metadata
-├── __init__.py              # Plugin entry point
-├── adapter.py               # Core logic (50+ methods)
+├── plugin.yaml              # Plugin metadata and platform declaration
+├── __init__.py              # Entry point and registration
+├── adapter.py               # Core adapter and messaging logic
 ├── cards.py                 # Interactive card templates
-├── models.py                # Model list and provider resolution
-├── session_actions.py       # Model switching / session reset (independently testable)
-├── branching.py             # Message-level conversation branching (🆕 reaction trigger, independently testable)
-├── callback_server.py       # Callback server environment check
+├── models.py                # Model listing and provider resolution
+├── session_actions.py       # Model switching and session resets
+├── branching.py             # Message branching (:new: reaction handling)
+├── callback_server.py       # Callback server health probe
 ├── scripts/
-│   └── hermes-mattermost-enhancer.sh   # Companion shell script (Mattermost Gateway patches)
-├── references/
-│   └── api-contracts.md     # Mattermost API contract docs
-├── README.md                # This document
+│   └── hermes-mattermost-enhancer.sh   # Companion gateway patches
+├── tests/                   # Regression test suite
+├── README.md                # English documentation
 ├── README.zh-CN.md          # Chinese documentation
-└── LICENSE                  # MIT
+└── LICENSE                  # MIT License
 ```
 
 ---
 
-> 💡 **Docker Self-Hosting Tips** — If you run Mattermost in Docker, these will save you some headaches:
->
-> - **Messages not live-updating?** Set `AllowCorsFrom` to `http://127.0.0.1:8065` in `config.json` and restart the container. The browser WebSocket is being blocked by CORS.
-> - **Slash commands not responding?** Their Mattermost Request URL must end in `/mm-command`; `MATTERMOST_CALLBACK_URL` is separate and must end in `/mattermost/callback` for card buttons. Inside a container, use `host.docker.internal` to reach Hermes on the host.
-> - **Images showing as broken?** Make `SiteURL` match the URL in your browser's address bar. Local = `127.0.0.1`, remote = your domain — don't mix them.
-> - **Random disconnects?** Give the container at least 2GB of memory. Run `docker stats mm-app` to check current usage.
-
 ## 📄 License
 
-MIT — see [LICENSE](LICENSE)
+[MIT License](LICENSE)

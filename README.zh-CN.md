@@ -10,175 +10,143 @@
 
 ---
 
-## 😵‍💫 这是什么？
+## 💡 这是什么？
 
-**一句话：** 如果你在 Mattermost 里用 Hermes，这个插件能让它变得更好用。
+**一句话介绍：** 如果你正在通过 Mattermost 团队聊天使用 Hermes AI 助手，这个插件能为你补齐所有原生缺失的交互能力。
 
-Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮你干活。但原版 Hermes 在某些方面不太顺手——比如执行危险命令前不会问你、想切换 AI 模型得去改配置文件、WebSocket 动不动就断连……
+原版 Hermes 在终端或网页里功能强大，但在 Mattermost 聊天流中缺少许多便捷交互——比如无法直接切换模型、遇到危险操作没有卡片拦截、多步任务容易刷屏、无法像桌面端一样从任意历史消息开辟新分支探索等。
 
-这个插件就是给 Hermes "加装"这些能力，让你用起来更顺手。
-
----
-
-## ✨ 它能做什么？
-
-### 🛡️ 1. 危险操作审批（私信卡片确认）
-
-**场景：** 你让 Hermes 执行一个命令，比如 `rm -rf 某个文件夹` 或者 `删除数据库记录`。这些操作一旦执行就不可逆，万一 AI 理解错了你的意思，后果很严重。
-
-**原来：** Hermes 二话不说就执行了，你只能在聊天记录里看到结果，来不及阻止 😱
-
-**现在：** 当 Hermes 要执行危险命令时，它不会直接动手。它会**私信你一张确认卡片**，上面有 4 个按钮：
-
-| 按钮 | 效果 |
-|------|------|
-| **Allow Once** | 允许这一次，下次同样的命令还要重新审批 |
-| **Allow This Session** | 允许这一次，整个对话结束前不再问 |
-| **Always Allow** | 以后这个命令永远不需要审批 |
-| **Deny** | 拒绝，不执行 |
-
-![授权选项卡效果](images/approve.webp)
-
-你点哪个按钮，按钮就会立刻消失并生效。每张卡片只对应它创建时那一条待审批命令；如果命令已处理或超时，旧卡片不会误批准同一会话中的下一条命令。整个过程全在 Mattermost 里完成，不用切窗口。
+本插件为 Hermes 深度适配了 Mattermost 原生交互界面，让你在手机端或电脑端都能享受丝滑的 AI 交互体验。
 
 ---
 
-### 🧠 2. 切换 AI 模型（`/model` 指令）
+## ✨ 核心功能（按实用性排序）
 
-**场景：** 你有好几种 AI 模型可选，有的擅长写代码、有的擅长聊天、有的便宜、有的快。你想根据具体任务切换模型。
+### 🧠 1. 随时切换 AI 模型（`/model` 指令与频道继承）
 
-**原来：** 得去改 `~/.hermes/config.yaml` 配置文件，改完还要重启 Gateway，非常繁琐 💀
-
-**现在：** 在任何 Thread 里输入 `/model`，会弹出一张下拉菜单卡片：
+**痛点与改善：**
+- **痛点：** 不同的任务需要不同的模型（写代码用专业模型，闲聊用快速轻量模型）。原本想要换模型，必须去修改服务器上的配置文件并重启服务，非常繁琐 💀
+- **改善：** 在任意 Thread（对话线）或私聊中输入 `/model`，立刻弹出一张下拉菜单卡片。从菜单中选好模型后，**仅当前 Thread 立即切换**，其他对话线完全不受干扰 ✅
 
 ![模型切换选项卡效果](images/model.webp)
 
-下拉列表里列出了所有你可用的模型。选一个，这个 Thread 就会立刻切换到新模型，**其他 Thread 不受影响**。
-
-比如 Thread A 用模型 X 写代码，Thread B 用模型 Y 聊天，互不干扰。
-
-> 💡 **小贴士：Channel → Thread 模型继承**
->
-> 如果你在**频道主时间线**里先用 `/model` 选好模型，再点回复按钮创建 Thread，新的 Thread 会**自动继承**你选的模型，不需要再切一次。
->
-> 举个栗子 🌰：你在 `#开发` 频道里输入 `/model` 选了 `deepseek-v4-pro`，然后回复任意消息（创建 Thread）。这个新 Thread 会自动用 `deepseek-v4-pro`。
->
-> **已有模型设置的 Thread 不会被覆盖**；没有单独模型设置的 Thread，会在收到消息时尝试继承频道设置。这里继承的只是模型选择，**不是频道或其他 Thread 的对话历史**。每个 Thread 也能随时独立使用 `/model` 切换模型。
+> 💡 **频道自动继承特性：**
+> 如果你在**频道主聊天窗口**先用 `/model` 选好模型，之后在频道内点击回复创建的任意新 Thread，都会**自动继承**这个模型设置，无需反复手动切换。已有单独设置的 Thread 不会被覆盖。
 
 ---
 
-### 🧠 3. 调整推理强度（`/reasoning` 指令）
+### 🛡️ 2. 危险操作安全确认（私信卡片审批）
 
-**场景：** 简单问题不需要模型想太久；复杂问题则可能值得多花一些推理时间。
+**痛点与改善：**
+- **痛点：** 当 AI 执行涉及删除文件、修改数据库或敏感命令时，一旦理解偏差就会造成不可逆的破坏，在普通群聊里你甚至来不及打断 😱
+- **改善：** 遇到危险操作时，Hermes 会主动向发起者的**私聊窗口发送一张确认卡片**，提供 4 个安全选项：
+  - **Allow Once**（仅允许这一次）
+  - **Allow This Session**（本次会话内不再询问）
+  - **Always Allow**（永久允许该命令）
+  - **Deny**（拒绝执行）
 
-**原来：** Mattermost 会拦截 `/` 开头的输入，Hermes 收不到 `/reasoning`，无法在当前会话调整推理强度。
+![授权选项卡效果](images/approve.webp)
 
-**现在：** 输入 `/reasoning high`、`/reasoning low` 或 `/reasoning none`，只调整当前 Mattermost 会话；其他 Thread 不受影响。输入 `/reasoning` 可查看当前状态，`/reasoning reset` 恢复继承的设置。
-
-可用等级：`none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`、`ultra`。具体模型可能会把不支持的等级调整到它可用的范围。
-
-> ⚠️ `/reasoning high --global` 会改全局默认值，不是临时设置；日常按会话切换时不要加 `--global`。
-
-> 📸 `[截图位]` — Mattermost Thread 中发送 `/reasoning high` 后，显示当前会话强度已更新
-
----
-
-### 🔄 4. 重置对话（`/new` 指令）
-
-**场景：** 当前对话跑偏了，你想保留同一个 Thread 或私聊窗口，但不再沿用之前的对话上下文。
-
-**现在：** 在要重置的 **Thread 或私聊（DM）内**输入 `/new`，会弹出确认卡片：
-
-![创建会话选项卡效果](images/new.webp)
-
-点击确认后：
-- 当前对话从新的会话开始，不再沿用原会话的聊天上下文；其他 Thread 不受影响。
-- 清除当前会话单独设置的模型和推理强度；下一条 Thread 消息仍可能继承频道模型，**不保证恢复全局默认模型**。
-- 不删除 Mattermost 聊天记录，也不清除 Hermes 的长期记忆、角色或系统说明。
-
-#### 什么时候需要 `/new`？
-
-| 使用位置 | 建议 |
-|---|---|
-| 已有 Thread 或 DM 内 | 需要在原窗口重新开始时使用 |
-| 线程模式（`MATTERMOST_REPLY_MODE=thread`）的频道主时间线 | **不需要**。每条新消息都会开启独立 Thread 会话，直接发消息即可 |
-| 平铺模式（`MATTERMOST_REPLY_MODE=off`）的频道主时间线 | 可以用于重置持续累积的频道级对话 |
-
-线程模式下，频道只是话题容器，不会把所有 Thread 的历史合并成一个整体上下文。**在频道主时间线执行 `/new` 不会重置任何已有 Thread，也不会批量清空频道对话**；但会清除该用户的频道级模型设置，影响之后需要从频道继承模型的 Thread。
-
-> ⚠️ **当前限制：** 插件尚未完整复用 Hermes 原生重置流程，不能保证重置时立即停止正在执行的旧任务，建议等任务结束后再重置。目标会话不存在时，确认卡也可能显示“新会话已创建”，但实际并未创建会话。
+> 🔒 **精准定位发起人：** 即使在多人参与的公共频道中，卡片也只会精准私信给真正发送指令的人，绝不打扰群内其他成员，更不会误发给管理员。
 
 ---
 
-### 🗜️ 5. 压缩对话上下文（`/compress` / `/compact`）
+### ❓ 3. 方案选择与决策提问（AI 交互式卡片）
 
-**场景：** 一个 Thread 持续聊很久，早期讨论、工具结果和中间过程越积越多。模型能读取的上下文越来越紧张，速度、费用和回答稳定性都会受影响。
-
-**原来：** 只能另开 Thread，或者等到上下文接近上限才被动处理 💀
-
-**现在：** 在当前 Thread 输入 `/compress`，Hermes 会把较早的对话整理成保留关键决策的摘要，并保留当前会话继续工作。
-
-```text
-/compress
-/compress 保留 Mattermost 插件架构、当前决定和未完成任务
-/compress --preview
-/compress here 4
-```
-
-- `/compress --preview`：只显示压缩计划，不修改对话
-- `/compress here 4`：压缩更早历史，同时保留最近 4 轮原文
-- `/compact`：与 `/compress` 完全相同的兼容别名
-
-压缩由 Hermes 内部会话机制执行；完成后的结果会发回**同一个 Thread**。正在压缩或历史不足时，Hermes 会给出明确提示，不会静默丢失内容。
-
----
-
-### ⌨️ 6. 正在输入提示（Typing 指示器）
-
-**场景：** 你在 Thread 里等 Hermes 回复，想知道它是不是在思考。
-
-**原来：** "正在输入..."  的标志出现在频道级别，而不是你正在聊天的那个 Thread 里。你以为它卡住了 😕
-
-**现在：** Typing 提示正确出现在当前 Thread 中，你知道它在处理你的请求 ✅
-
-![Typing 指示器示例效果](images/typing.webp)
-
----
-
-### ❓ 7. AI 向你提问（交互式卡片）
-
-**场景：** Hermes 在做复杂任务时，需要在几个方案里选一个继续。比如「这个文件有两种处理方式，A 快速但粗糙，B 慢但精细，你要哪个？」或者是开放式问题「你希望用哪种方案？」
-
-**原来：** Hermes 在 Thread 里丢出一行纯文本「请选 1. A 2. B」，混在对话流里很容易被你错过。你没看到这个问题，它就一直卡在那里等 💀
-
-**现在：** Hermes 提问时，会弹出一张**醒目的交互卡片**，每个选项都是可点击的按钮。还有一个「✍️ 其他」按钮可以自由输入：
+**痛点与改善：**
+- **痛点：** 当 AI 处理复杂任务需要你做选择时（例如“发现两种实现方案：A 速度更快，B 稳定性更高，请选 1 或 2”），纯文本形式的提问极易被忽略。一旦漏看，AI 就会一直在后台死等直到超时卡住 💀
+- **改善：** AI 的提问会自动渲染为**醒目的交互式按钮卡片**。
+  - 直接点击选项按钮即可秒速确认，卡片原地更新打勾 ✅
+  - 提供「✍️ 其他」按钮，点击后可在聊天框自由输入补充意见
+  - 纯开放式问题自动展示清晰的指引文本，直接打字即可回复
 
 ![AI 提问交互卡片效果](images/clarify.webp)
 
-- 点击选项按钮 → 立刻生效，卡片原地更新：保留原问题与全部选项，✅ 标记你的选择，回看历史一目了然
-- 点击「✍️ 其他」→ 卡片提示「请在下文输入你的回答」，直接打字就行
-- 纯开放式问题（没有选项）→ 显示问题文本，直接打字回复
+---
 
-整个过程全在 Mattermost 里，不用切窗口、不用记命令。
+### 🌿 4. 从任意历史消息分叉新对话（🆕 表情分支）
+
+**痛点与改善：**
+- **痛点：** 对话进行到很深时，如果你想回到前面第 3 轮换一个思路探讨，如果清空上下文原讨论就全丢了；如果复制整段历史又太臃肿混乱 💀
+- **改善：** 对任意一条历史消息长按或点击添加 🆕（`:new:`）表情，Hermes 会以该消息为分界点，在频道中**自动开辟一个全新的独立 Thread**，完整克隆该节点之前的对话历史，原 Thread 保持原样，两条思路并行探索互不干扰 ✅
+
+| 你给哪条消息点 🆕 | 新分支继承的历史上下文 | 典型使用场景 |
+| :--- | :--- | :--- |
+| **你自己的提问** | 截取到该提问**之前**的全部历史（不含该提问） | “这个问题我想换种问法”或“换个参数再试一次” |
+| **Hermes 的回答** | 包含这条回答在内的**完整对话轮次**（含工具执行结果） | “这个方案很棒，我想基于当前成果深挖另一个方向” |
+
+> 📱 **全平台原生支持：** 手机端长按添加表情、电脑端鼠标悬停点击表情均可触发，无需在 Mattermost 服务器额外安装任何网页端组件。
 
 ---
 
-### 🏷️ 8. 显示当前模型（回复脚注）
+### 🙈 5. 隐藏任务思考与执行过程（`task_progress` 开关）
 
-**场景：** 你同时开了好几个 Thread，每个 Thread 可能用不同的 AI 模型。聊着聊着就忘了「这个 Thread 用的是哪个模型？」
+**痛点与改善：**
+- **痛点：** 当 Hermes 执行联网搜索、阅读本地长文件或多步分析时，聊天界面会频繁弹出跳动的中间过程卡片（如 `🔍 Searching the web for ...`、`📖 Reading file ...`）。在日常问答或追求清爽界面的场景下，大量过程消息容易造成视觉干扰和刷屏 💀
+- **改善：** 插件拓展了任务过程控制项（默认为 `on`）。将其配置为 `off` 时，彻底隐藏思考推导与文件/网络执行等所有中间步骤，只保留输入中的 Typing 提示，完成后直接送达最终回答，保持对话流干净整洁 ✅
 
-**原来：** 没有这个功能。你得输入 `/model` 看一下下拉菜单才知道当前模型 💀
+**配置方式（二选一）：**
+- **方式 1：环境变量（`~/.hermes/.env`）**
+  ```dotenv
+  MATTERMOST_TASK_PROGRESS=off
+  ```
+- **方式 2：配置文件（`~/.hermes/config.yaml`）**
+  ```yaml
+  mattermost:
+    task_progress: off
+  ```
+  *(修改后重启 Gateway 即可生效)*
 
-**现在：** 每条 Hermes 回复的末尾会自动加上一行脚注，告诉你当前模型和上下文占用百分比：
+---
+
+### 🧠 6. 调整会话推理强度（`/reasoning` 指令）
+
+**痛点与改善：**
+- **痛点：** 简单问答不需要模型反复深思熟虑；而疑难代码排查或方案设计又希望模型全力推理。原有系统无法在聊天窗口临时调整思考强度。
+- **改善：** 在 Thread 中直接发送指令临时调整思考深度，仅对当前对话生效：
+  - `/reasoning low`（快速轻度思考）
+  - `/reasoning high`（深入严密推导）
+  - `/reasoning none`（关闭思考推导，模型支持时直接输出）
+  - `/reasoning`（查看当前对话的思考强度状态）
+  - `/reasoning reset`（恢复默认设置）
+
+---
+
+### 🔄 7. 重置当前对话上下文（`/new` 指令）
+
+**痛点与改善：**
+- **痛点：** 当前 Thread 讨论偏离了主题，你想在同一个窗口继续聊，但不想让之前的陈旧上下文干扰 AI 思考。
+- **改善：** 在 Thread 或私聊窗口中发送 `/new`，点击弹出的确认卡片后，当前窗口即刻开启全新会话，之前的历史不再计入上下文记忆。
+
+![创建会话选项卡效果](images/new.webp)
+
+> 💡 线程模式下，若想探讨全新的主题，直接在频道主时间线发送新消息即可自动开启新 Thread，不需要频繁手动执行 `/new`。
+
+---
+
+### 🗜️ 8. 就地压缩长对话历史（`/compress` / `/compact` 指令）
+
+**痛点与改善：**
+- **痛点：** 某个重要任务在 Thread 里聊了数十轮，上下文快要超出模型容量上限，对话变得迟缓且费用倍增。
+- **改善：** 输入 `/compress`，AI 会就地把早期的冗长讨论和执行结果提炼浓缩为关键决策摘要，依然在**同一个 Thread** 中继续流畅对话，无需中途搬家换群。
+
+```text
+/compress                               # 自动智能压缩
+/compress 保留核心架构决定与待办任务清单    # 带有侧重点的个性化压缩
+/compress --preview                     # 仅预览压缩计划，不实际修改
+```
+
+---
+
+### 🏷️ 9. 显示当前模型与上下文使用率（回复脚注）
+
+**痛点与改善：**
+- **痛点：** 同时打开了多个 Thread 讨论不同事项，聊久了容易忘记当前 Thread 使用的是哪个模型。
+- **改善：** 开启后，Hermes 的每条回复末尾会自动附带一行灰色等宽小字脚注（如 `── deepseek-v4-pro 34% ──`），一目了然看清当前模型与上下文健康度，不遮挡主体阅读。
 
 ![模型脚注效果](images/footer.webp)
 
-灰色等宽小字，不抢眼，瞟一眼就知道当前状态。**这在多 Thread 同时聊天时特别有用**——每个 Thread 的脚注显示各自的模型，不会搞混。
-
-> 💡 **如何开启**
->
-> 这个功能基于 Hermes 内置的 `runtime_footer`。在 `~/.hermes/config.yaml` 的 `display` 段中添加：
->
+> 💡 **启用方法：** 在 `~/.hermes/config.yaml` 的 `display` 节点中添加：
 > ```yaml
 > display:
 >   runtime_footer:
@@ -187,128 +155,38 @@ Hermes 是一个 AI 助手，你可以在 Mattermost 里跟它对话，让它帮
 >       - model
 >       - context_pct
 > ```
->
-> 然后重启 Gateway 即可。`fields` 里只保留了 `model`（模型名）和 `context_pct`（上下文占用百分比）两项，简洁不啰嗦。
->
-> 如果你用的是 Hermes CLI（非 Gateway），也可以通过 `/footer on` 指令开关。
 
 ---
 
-### 🌿 9. 从任意消息分叉新对话（🆕 表情分支）
-
-**作用：** 类似 CodeX 或 Hermes Desktop 的「从某条消息创建新分支」功能。让你在长对话中针对任意一个历史节点开辟平行对话线，尝试不同的思路或提问方式，而无需丢弃当前的讨论进展。
+### ⌨️ 10. Thread 内正在输入提示（Typing 指示器）
 
 **痛点与改善：**
-- **痛点：** 探讨方案或排查问题聊到第 10 轮时，你想回到第 3 轮换一种问法。在 Mattermost 里，如果输入 `/new` 会彻底清空上下文；如果用原生 `/branch` 只能把**全部历史**无差别复制一份，而且会把当前 Thread 的绑定直接切走，原讨论线无法继续保留 💀
-- **改善：** 直接对目标消息添加一个 🆕（`:new:`）表情。Hermes 会在当前频道自动开辟一个**全新的独立 Thread（同级线程）**，把截至该节点的历史无损复制过去，原 Thread 保持原状，两个线程并行探索互不干扰。
+- **痛点：** 原版系统的“正在输入...”提示会错误地出现在顶层频道列表中，你在 Thread 里看着界面毫无动静，误以为 AI 已经死机卡死 😕
+- **改善：** 修复了状态路由机制，Typing 提示精准出现在当前正在等待的 Thread 底部，让你明确知道 AI 正在认真思考并组织语言 ✅
 
-#### 分支截取规则对照
+![Typing 指示器示例效果](images/typing.webp)
 
-| 你给哪条消息点 🆕 | 新分支继承的历史 | 新 Thread 根帖呈现 | 典型场景 |
+---
+
+## 🐛 解决的核心问题与保障
+
+| 类别 | 遇到的问题 | 造成的影响 | 插件带来的改善 |
 | :--- | :--- | :--- | :--- |
-| **你自己的提问** | 这条提问**之前**的全部历史（不含该提问） | 引用你的原提问文本（附原消息跳转链接） | 「这个问题我换种问法」或「改个参数再试一次」，直接复制修改后在新串发送 |
-| **Hermes 的回答** | 到这条回答为止的**整轮对话**（含关联的工具调用与返回结果） | 显示「继承自原消息（保留 N 轮）」与跳转链接 | 「这个方案很棒，我想就着这个结果继续深挖别的方向」 |
-
-#### 核心机制与优势
-- **工具调用原子闭环：** 按轮次边界精确截断。即使被点的回答中间调用了多个外部工具，所有工具调用及其返回结果均会被成对完整克隆，决不产生上下文悬挂错误。
-- **环境设置平滑继承：** 新分支自动同步原 Thread 当前使用的 AI 模型与推理强度（Reasoning Effort）配置。
-- **全平台即点即用：** 纯原生表情触发机制，手机端（iOS / Android）长按添加表情、桌面端/网页端悬停点击表情均可触发，**无需在 Mattermost 服务器安装任何额外的 Web 插件**。
-
----
-
----
-
-## 🐛 修复了什么 Bug？
-
-下面是这个项目（插件 + 配套脚本）修掉的 11 个 Bug。每个 Bug 都附带了**造成的影响**，这样你能判断是否遇到过这些问题。
-
-| # | Bug 描述 | 造成的影响 | 修复后 | 实现方式 |
-|---|---------|-----------|--------|---------|
-| **1** | Typing 标志位置错误：Hermes 在 Thread 里思考时，"正在输入..." 出现在频道级别 | 你在 Thread 里等回复，却看不到 Typing 标志 | Typing 正确出现在当前 Thread | Adapter 覆写 |
-| **2** | 文件不存在时刷屏：Hermes 要发送的图片/文件找不到了，会在聊天里贴一大段错误信息 | 聊天被错误信息刷屏，干扰正常对话 | 文件不存在时静默跳过，不打扰你 | 上游已修复 |
-| **3** | AI 提问不显眼：Hermes 向你提问时，只发一行纯文本，混在对话流里容易被错过 | 你没看到问题 → 没回复 → AI 卡住超时 → 触发会话分裂 💀 | 提问渲染为带按钮的交互卡片，醒目且可点击 | Adapter 覆写 |
-| **4** | WebSocket 频繁断连：Mattermost WebSocket 每 ~50 秒断开重连（close 258） | 短暂消息丢失、重复消息、回复卡顿 | 心跳优化到 15 秒，连接稳定 | Adapter 覆写 |
-| **5** | 媒体不进 Thread：AI 生成的图片/音频/视频/文档出现在频道主聊天流，而不是当前 Thread | 你在 Thread 里让 AI 生图 → 图片跳到频道主聊天流，打乱对话节奏 💀 | 所有媒体（图片、音频、视频、文档）正确出现在当前 Thread 中 | ~~Adapter 覆写~~ 上游已修复 (v2026.7.30+) |
-| **6** | DM 审批不知道发给谁：Hermes 要发审批私信，但不知道发给哪个用户（user_id 没传过来） | 审批卡片可能无法送达，危险操作可能被直接执行 | 追踪每条消息的真实发送者，审批卡片准确送达发起人 | Adapter 覆写 |
-| **6b** | 多用户频道审批发错人：多个用户在同一频道（公开/群组）时，审批私信误发给管理员（members 反查只取第一个非 bot 成员），发起者本人收不到 | 普通用户发起危险操作 → 审批卡片跑到管理员 DM，本人完全不知情 💀 | 按消息真实发送者精确定位审批接收人，不再误发管理员 | Adapter 覆写 |
-| **7** | 工具链进度不进 Thread：Hermes 执行多步任务时，中间的进度提示只出现在频道主聊天流 | 你在 Thread 里等结果，过程中完全看不到进展 💀 | 进度消息正确出现在当前 Thread，实时看到每一步 | ~~Shell Patch~~ 上游已修复 |
-| **8** | 会话分裂（AI 答非所问）：AI 在等待你回复 clarify 提问时，你发的下一条消息被当成"新对话"开启 | AI 完全失忆，开始瞎答 | 消息正确路由给等待中的 AI，不再创建新会话 | Shell Patch (E-P2) |
-| **9** | Clarify 并发守护缺失：在 clarify 等待期间，同时到达的消息可能绕过会话守卫创建重复会话 | 两个 AI 同时回复同一个 Thread，回复混乱 | 在创建新会话前拦截，路由到等待中的 clarify | ~~Shell Patch~~ 上游已修复 |
-| **10** | auto-resume 串台：Gateway 重启后，同一频道多个 Thread 的 session 同时自动恢复，消息跨 Thread 泄漏 | 重启后在 Thread A 里看到 Thread B 的 AI 回复 | 每频道只恢复最近一个 session，Thread 之间互不干扰 | Shell Patch (E-P4) |
-| **11** | 回复碎片化：AI 回复被拆成多条独立消息 | 一次回复收到多条消息，阅读体验差 | 上游改进了评论输出机制，不再维护旧版合并补丁 | 上游行为演进 |
-
-> 💡 **Bug #11** 是历史问题；当前 Hermes 已不再需要对应的评论合并补丁。主脚本现保留幽灵代码围栏、MiniMax 参数和跨线程中断修复，请以脚本 `check` 的实时结果为准。
-
----
-
----
-
-## 🧱 插件 vs 配套脚本，怎么理解？
-
-你可能注意到了，这个项目里除了插件（Plugin），还有一套 **补丁脚本**（Shell Patch）。这里用大白话解释一下。
-
-### Hermes 的工作原理
-
-可以把 Hermes 理解成一个**智能机器人** 👤：
-
-```
-你 ──→ Mattermost ──→ Hermes Gateway（机器人中枢）──→ AI 大脑
-                              │
-                              ├── 插件（Plugin）: 给机器人装新技能
-                              └── 源码（Source）: 机器人的"骨架"，改不了
-```
-
-### 插件能做什么？不能做什么？
-
-插件就像给手机装 App——能增加功能、优化体验，但不能改手机的底层系统。
-
-- ✅ **插件能改的**：机器人"怎么回复你"（适配器方法）——Bug #1-6 都是通过 adapter 覆写实现的，装了插件就自动生效
-- ❌ **插件改不了的**：机器人"怎么被叫起来的"（调用方代码）——这部分在 Hermes 的底层源码里
-
-上面 Bug 表格中标注 **Shell Patch** 的 Bug（#7-10），就是插件够不到的地方。
-
-### 补丁脚本是干什么的？
-
-修那些插件够不到的 Bug。分两个脚本：
-
-- **配套脚本**（`scripts/hermes-mattermost-enhancer.sh`）：Mattermost 交互专属的 Gateway 层修复 — clarify 会话处理 (E-P2)、auto-resume 去重 (E-P4)。已修复的 E-P1（进度进 Thread）、E-P3（并发守护）、E-P5（Status 路由）随上游版本退役
-- **主脚本**（`~/.hermes/scripts/hermes-patches.sh`）：平台通用的修复，例如长代码块空围栏、MiniMax 参数和跨线程中断路由。
-
-> ⚠️ **当前状态：** 这些补丁目前以本地修复方式维护。部分已提交上游但尚未合入 Hermes 官方版本。建议每次升级 Hermes 后运行 `check` 确认状态——一旦上游合入，脚本会报告"已应用"。
->
-> ⚠️ **配套脚本不会替你重启 Gateway**：脚本内不含重启调用（在 gateway 会话里执行重启会被 Hermes 安全钩子拦截，导致整个脚本无法运行）。`apply` 完成后请在外部终端手动重启。
-
-![Patch脚本运行效果](images/patch.webp)
-
-### 我该装哪个？
-
-**全部都要。** 先装插件（适配器覆写 + 功能），再跑两个脚本（底层 Bug 修复）：
-
-```bash
-# 1. 插件（适配器覆写 — #1-6）
-hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
-
-# 2. 配套脚本（Mattermost Gateway 补丁 — #7-10）
-cd ~/.hermes/plugins/mattermost-enhancer
-./scripts/hermes-mattermost-enhancer.sh apply
-
-# 3. 主脚本（平台无关修复 — #11 + CLI 修复）
-~/.hermes/scripts/hermes-patches.sh apply
-```
-
-> 💡 将来 Hermes 官方可能会把这些 Bug 修复合并进去，到时候就不需要脚本了。运行 `check` 会提示"已应用"。
-
----
+| **交互控制** | 斜杠命令被 Mattermost 拦截 | 输入 `/model`、`/new` 等指令直接报错，无法在聊天窗口控制 AI | 搭建本地独立回调通道，全套斜杠指令畅通运行 |
+| **状态感知** | Typing 提示位置错乱 | Thread 里看不到 AI 状态，频繁误判为服务假死 | 状态指示器精确路由到当前 Thread 底部 |
+| **安全隔离** | 多用户群聊审批发错人 | 多人群聊中，普通成员触发危险命令却私信发给管理员 | 依据消息发送者精准路由审批卡片到本人私信 |
+| **网络通信** | WebSocket 频繁断线重连 | 遇到网络微小抖动即断开，导致消息吞字或卡顿 | 优化心跳探测机制至 15 秒，连接长期保持稳定 |
+| **决策交互** | 提问纯文本混在聊天流中 | AI 的关键分歧点提问容易被漏看，导致任务长期阻塞卡死 | 自动转换为可交互的点击卡片与自由输入框 |
+| **会话分叉** | 缺乏局部历史复刻能力 | 无法在保留前置成果的基础上探索不同解法 | 原生支持 🆕 表情一键开辟独立新分支探索 |
 
 ---
 
 ## 🚀 快速上手（4 步）
 
 ### 前提条件
-
-- ✅ 已经在用 [Hermes Agent](https://github.com/nousresearch/hermes-agent)（版本 v0.23.0+）
-- ✅ 有一个 Mattermost 服务器，Bot 账号已配好
-- ✅ Python 3.11+
+- ✅ 已安装 [Hermes Agent](https://github.com/nousresearch/hermes-agent)（版本 ≥ v0.23.0）
+- ✅ 拥有一个可用的 Mattermost 服务器与已配置好的 Bot 账号
+- ✅ Python 3.11+ 环境
 
 ---
 
@@ -318,280 +196,113 @@ cd ~/.hermes/plugins/mattermost-enhancer
 hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
 ```
 
-### 第 2 步：注册 Mattermost Slash 指令
+---
 
-在 Mattermost **产品菜单 → 集成 → Slash 指令** 中添加需要的指令。Mattermost 的「触发词」填写不带斜杠的名称（例如 `reasoning`）；用户在聊天框里使用时再写成 `/reasoning`。建议一次注册这五条：
+### 第 2 步：在 Mattermost 中注册自定义 Slash 指令
 
-| 指令 | 请求 URL | 说明 |
-|------|---------|------|
-| `/model` | `http://<你的Hermes主机>:18065/mm-command` | 切换 AI 模型 |
-| `/new` | `http://<你的Hermes主机>:18065/mm-command` | 重置当前对话；线程模式下请在 Thread 或 DM 内使用 |
-| `/reasoning` | `http://<你的Hermes主机>:18065/mm-command` | 查看或调整当前会话的推理强度 |
-| `/compress` | `http://<你的Hermes主机>:18065/mm-command` | 压缩当前对话上下文 |
-| `/compact` | `http://<你的Hermes主机>:18065/mm-command` | `/compress` 的兼容别名 |
+进入 Mattermost **产品菜单 → 集成 → Slash 指令**，点击添加自定义指令（请求方式选择 **POST**）：
 
-> 🔧 如果 Mattermost 和 Hermes 在同一台机器上（Docker 部署），用 `http://host.docker.internal:18065/mm-command`
+| 触发词（不带斜杠） | 建议显示名称 | 请求 URL（根据实际部署选择） |
+| :--- | :--- | :--- |
+| `model` | 切换 AI 模型 | `http://<Hermes主机IP>:18065/mm-command` |
+| `new` | 重置当前对话 | `http://<Hermes主机IP>:18065/mm-command` |
+| `reasoning` | 调整推理强度 | `http://<Hermes主机IP>:18065/mm-command` |
+| `compress` | 压缩对话上下文 | `http://<Hermes主机IP>:18065/mm-command` |
+| `compact` | 压缩对话上下文 (别名) | `http://<Hermes主机IP>:18065/mm-command` |
 
-每条指令都选择 **POST**，保存后复制 Mattermost 显示的 Token，按名称放进 `MATTERMOST_SLASH_COMMAND_TOKENS`。新版本会在共享的 `/mm-command` 入口分发指令前强制校验 Token：**只有实际注册的指令需要配置，但每一条已注册的指令都必须配置自己的 Token**。例如只注册 `/reasoning` 时，至少配置 `reasoning=你复制的Token`；如果同时注册了 `/model`、`/new`、`/compress` 或 `/compact`，也必须分别配置它们的 Token。
+> 🔧 **Docker 部署小贴士：** 如果 Mattermost 运行在容器内，Hermes 运行在宿主机上，请求 URL 请统一填写：`http://host.docker.internal:18065/mm-command`。
+
+保存后，复制每条指令生成的 Token。
+
+---
 
 ### 第 3 步：配置环境变量
 
 打开 `~/.hermes/.env`，添加以下配置：
 
-```bash
-# ═══ 必填 ═══
-# 回调服务器绑定地址和端口
+```dotenv
+# ── 回调服务器（用于接收卡片点击与指令）──
 MATTERMOST_CALLBACK_BIND=0.0.0.0
 MATTERMOST_CALLBACK_PORT=18065
 
-# 回调 URL —— Mattermost 用这个地址把按钮点击/下拉选择发回给你的 Hermes
-# 🔧 Docker 部署（Mattermost 在容器里）：必须用 host.docker.internal
+# ── 回调 URL（Mattermost 服务器访问宿主机的地址）──
+# Docker 部署请使用 host.docker.internal：
 MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
-# 💻 本地部署（Mattermost 和 Hermes 在同一台机器、不用 Docker）：
-#    可以不填，插件会自动用 http://127.0.0.1:18065/mattermost/callback
 
-# ═══ 强烈建议配置 ═══
-# HMAC 签名验证：当回调端口可被 Docker 网络或其他设备访问时必须配置。
-# 生成示例：openssl rand -hex 32
+# ── 安全验证密钥（建议填写 32 位随机字符串，防伪造请求）──
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
-# ═══ Slash 指令鉴权（必填）═══
-# 在每条 Mattermost 自定义 Slash 指令的设置页复制它自己的 Token。
-# 格式：指令名称=Token；多条指令用英文分号分隔。
-# 下面示例假设五条指令都已注册；只保留实际注册的指令即可。
-# 不要提交真实 Token 到代码仓库。
-MATTERMOST_SLASH_COMMAND_TOKENS="model=replace-model-token;new=replace-new-token;reasoning=replace-reasoning-token;compress=replace-compress-token;compact=replace-compact-token"
+# ── Slash 指令 Token 校验（将第 2 步复制的 Token 分号隔开填入）──
+MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;reasoning=token3;compress=token4;compact=token5"
+
+# ── 可选：任务过程展示（默认 on；若需隐藏文件与搜索等执行细节可设为 off）──
+# MATTERMOST_TASK_PROGRESS=on
+
+# ── 可选：消息分叉表情（默认 new；填 off 可关闭）──
+# MATTERMOST_BRANCH_EMOJI=new
 ```
 
-如果只注册 `/reasoning`，最小配置为：
+---
 
-```dotenv
-MATTERMOST_SLASH_COMMAND_TOKENS="reasoning=从Mattermost复制的Token"
-```
-
-> ⚠️ 如果你像大多数自部署用户一样，Mattermost 跑在 Docker 容器里，**`MATTERMOST_CALLBACK_URL` 必须填**，否则容器里的 Mattermost 无法回调到宿主机的 Hermes。
->
-> 🔐 Slash 指令 Token 与 `MATTERMOST_CALLBACK_SECRET` 是两套不同的凭据：Slash 指令使用 `MATTERMOST_SLASH_COMMAND_TOKENS`；按钮卡片回调使用 `MATTERMOST_CALLBACK_SECRET`。配置环境变量后需重启 Gateway。
-
-> 🔐 每条 Slash 指令都有自己的 Token；插件会按指令名称分别校验，不能用 `/reasoning` 的 Token 调用 `/new` 等其他命令。
-
-Mattermost 通常会在 Slash Command 请求的 `token` 表单字段中发送凭据；插件也兼容 `Authorization: Token TOKEN_VALUE` 请求头。每条命令都要在上面的环境变量中填写与其触发词对应的 Token；不要把这些 Token 发到聊天、代码仓库或截图中。
-
-### 第 4 步：运行配套脚本 + 重启
-
-**什么时候需要运行？**
-- ✅ **首次安装**：必须执行
-- ✅ **Hermes 升级后**：升级可能覆盖源码修复，运行 `check` 确认状态
-- ✅ **功能异常时**：审批卡片收不到、进度消息不进 Thread → 先 `check` 诊断
-- ❌ **正常使用时**：不需要重复运行
+### 第 4 步：运行配套补充脚本并重启服务
 
 ```bash
 cd ~/.hermes/plugins/mattermost-enhancer
 
-# 先检查当前状态（看看所有补丁是否已应用）
+# 1. 检查配套环境与底层适配状态
 ./scripts/hermes-mattermost-enhancer.sh check
-```
 
-如果 `check` 显示未应用，执行补丁：
-
-```bash
-# 应用补丁
+# 2. 如果提示未应用，执行补充适配
 ./scripts/hermes-mattermost-enhancer.sh apply
 
-# 必须在外部 Terminal / Ghostty 重启 Gateway，才能加载新的 Gateway 补丁
-# 不要在 Hermes 的 Mattermost 对话中执行这条命令。
+# 3. 在外部终端重启 Hermes Gateway 生效
 hermes gateway restart
 ```
 
-> 💡 别忘了主脚本：`~/.hermes/scripts/hermes-patches.sh apply` 修复平台无关的 Bug。
-
-🎉 **完成！** 现在去 Mattermost 里试试 `/model`、`/reasoning high`，或者执行一条危险命令看看审批卡片吧。
-
----
-
----
-
-## 📖 使用指南
-
-### 切换 AI 模型
-
-1. 在任何 Thread 里输入 `/model` 并发送
-2. 会弹出一张下拉菜单，显示所有可用模型
-3. 从下拉菜单中选择你要的模型
-4. 当前 Thread 立刻切换，下一个问题就用新模型回答
-
-> 💡 切换只影响当前 Thread。其他 Thread 还是原来的模型。想切回去？再 `/model` 选一次。
-
-### 重置对话
-
-1. 在要重置的 Thread 或 DM 内输入 `/new` 并发送
-2. 弹出确认卡片
-3. 点击确认，后续对话不再沿用原会话的聊天上下文
-
-> 💡 线程模式下，想开新话题直接在频道主时间线发消息即可，无需先用 `/new`。重置不会删除聊天记录或长期记忆；模型继承和当前限制见上文“重置对话”。
-
-### 调整推理强度
-
-在当前 Thread 中发送以下命令：
-
-```text
-/reasoning                 # 查看当前设置
-/reasoning high            # 当前会话使用 high
-/reasoning low             # 当前会话使用 low
-/reasoning medium          # 当前会话使用 medium
-/reasoning none            # 当前会话关闭推理（模型支持时）
-/reasoning reset           # 清除本会话覆盖，恢复继承设置
-```
-
-#### 查询当前实时值
-
-在**同一个 Thread** 中直接发送不带参数的 Slash 指令：
-
-```text
-/reasoning
-```
-
-插件会调用 Hermes 的原生处理器，显示当前有效的推理等级以及它的作用范围（当前会话覆盖或全局配置）。这是查询 Gateway 运行时会话状态的正确方式。
-
-不要改用普通消息询问“打印当前会话的 reasoning 值”。普通消息只能让模型根据上下文或 `config.yaml` 推测，无法可靠读取 Gateway 内存中的会话级临时覆盖，因此可能显示全局默认值而不是当前 Thread 的真实值。
-
-设置按当前 Mattermost 会话隔离；不同 Thread 可以分别使用不同强度。`/reasoning high --global` 会保存全局默认值，请仅在确实要修改所有会话默认行为时使用。
-
-### 审批危险操作
-
-这是自动的，不需要你手动触发。
-
-当 Hermes 要执行危险命令时：
-
-1. 你会在 **私信** 里收到一张审批卡片
-2. 选择其中一个按钮：
-   - **Allow Once** — 只批准这一次
-   - **Allow This Session** — 这次对话有效
-   - **Always Allow** — 永远批准这条命令
-   - **Deny** — 拒绝
-3. 按钮立刻消失，Hermes 收到你的决定并执行
-
-### AI 向你提问
-
-这也是自动的。当 Hermes 需要你做决定时：
-
-1. 当前 Thread 里弹出一张醒目的交互卡片
-2. 点击你想要的选项按钮 → 立刻生效
-3. 或者点击「✍️ 其他」→ 直接在聊天框打字回复
-4. 如果是开放式问题 → 看不到按钮，直接打字回答问题
-
-### 查看当前模型
-
-这也是自动的——不需要你手动触发。
-
-开启后，每条 Hermes 回复末尾都会自动显示当前模型和上下文使用率，格式为 `── deepseek-v4-pro 34% ──`。灰色小字脚注，不干扰阅读。
-
-想关掉？在 `config.yaml` 里把 `display.runtime_footer.enabled` 改成 `false` 再重启就行。
-
-### 从任意消息创建新分支（🆕 表情）
-
-这是半自动的——通过给消息点表情即可触发，无需敲任何斜杠命令。
-
-#### 1. 使用方法（操作步骤）
-1. **定位目标节点**：在 Thread 中找到你想分叉的任意一条消息（无论是你的提问还是 Hermes 的回答）。
-2. **添加触发表情**：
-   - **桌面端 / Web 端**：鼠标悬停在消息上，点击操作栏中的「添加表情」图标，输入 `new` 并选择 🆕 表情。
-   - **移动端（iOS / Android）**：长按目标消息，在弹出的表情菜单中选择或搜索 🆕 表情。
-3. **确认触发回执**：Hermes 收到事件后，会在你点击的原消息上自动追加一个 ✅ 表情，表示新分支已建好。
-4. **进入新分支继续对话**：在当前频道的时间线中，会看到一条刚发布的根帖子（Root Post）。点击打开该新 Thread 直接回复即可，原 Thread 的对话进度完好保留。
-
-#### 2. 使用限制与注意事项
-1. **原对话运行中禁止分支**：如果当前 Thread 中 Hermes 正在思考、运行工具或流式输出，点 🆕 会被拒绝并在原 Thread 发出提示。请等待当前轮次回复完全结束后再创建分支，避免克隆到残缺的半截状态。
-2. **已压缩归档的历史无法分支**：当对话极长触发了 Hermes 的自动上下文压缩后，较早前已被摘要压缩掉的历史物理行无法单独定位。若尝试对已被压缩吞掉的历史消息点 🆕，系统会提示「找不到分支点」。
-3. **权限校验限制**：只有在 `MATTERMOST_ALLOWED_USERS` 授权白名单中、或具备 Gateway 使用权限的用户点击表情才有效；未经授权的其他成员点击表情将被静默忽略。
-4. **短时间防重保护**：同一条消息在 30 秒内仅允许触发一次分支，避免网络抖动或手抖连击创建出大量重复的同级 Thread。
-5. **频道顶层直接发帖限制**：在单层频道模式（非 Thread 模式）下，所有消息均属于顶层流，建议在 Thread 对话模式下使用分支以获得清晰的树状探索结构。
-
-#### 3. 自定义触发表情或关闭功能
-默认触发表情为 `new`（对应 🆕）。如果你习惯使用其他表情，或者希望关闭此功能，可以在 `~/.hermes/.env` 中配置：
-
-```dotenv
-# 可选：自定义触发分支的表情名称（不带冒号，多个用英文逗号分隔）
-# 填 off / false / 0 可彻底关闭表情分支功能
-MATTERMOST_BRANCH_EMOJI=new,twisted_rightwards_arrows
-```
-配置修改后，在外部终端重启 Gateway 即可生效。
-
----
+🎉 **配置完成！** 现在回到 Mattermost，试试在 Thread 里发送 `/model` 或者给消息点个 🆕 表情体验吧！
 
 ---
 
 ## ❓ 常见问题
 
-**Q: 为什么我给消息点了 🆕 表情却没有任何反应？**
+**Q: 点击卡片按钮或输入 `/model` 没有反应？**
+- 检查 `MATTERMOST_CALLBACK_URL` 是否配置正确。如果是 Docker 运行 Mattermost，不能填 `127.0.0.1`（容器内部无法识别），必须填 `http://host.docker.internal:18065/mattermost/callback`。
+- 确认 Mattermost 的 `config.json` 里 `ServiceSettings.AllowCorsFrom` 允许跨域或包含了本地主机。
 
-A: 请按以下顺序排查：
-1. **是否正在回答**：检查原 Thread 中 Hermes 是否正在思考或输出，生成过程中点击会被拒绝；
-2. **用户授权**：确认你的 Mattermost 用户名或 ID 是否在 `MATTERMOST_ALLOWED_USERS` 中；
-3. **配置开关**：检查 `~/.hermes/.env` 中是否设置了 `MATTERMOST_BRANCH_EMOJI=off`，或表情名称拼写有误；
-4. **网关重启**：新增功能需要重启 Gateway 才会加载，请确认已在外部终端重启服务。
+**Q: 给消息点了 🆕 表情但没有分叉出新 Thread？**
+1. 确认 Hermes 是否正在输出中——回复生成过程中为防止历史断层，会拒绝分叉操作；
+2. 确认当前用户是否在 `MATTERMOST_ALLOWED_USERS` 允许名单内；
+3. 检查是否设置了 `MATTERMOST_BRANCH_EMOJI=off`。
 
-**Q: 插件和脚本要一起装吗？**
+**Q: 想要让界面保持干净，不想看到长任务中反复弹出的中间阅读/搜索状态？**
+- 在 `~/.hermes/.env` 中添加 `MATTERMOST_TASK_PROGRESS=off`（或在 `config.yaml` 的 `mattermost:` 段添加 `task_progress: off`），重启 Gateway 即可。
 
-A: 对。插件是"功能包"，脚本是"Bug 修复包"。三个组件都要。脚本只需要跑一次（`apply`），以后 Hermes 升级时可能需要再跑一次。
-
-**Q: 升级 Hermes 后怎么办？**
-
-A: Hermes 大版本升级后，源码可能被覆盖。建议两个脚本都跑一次 `check`：
-```bash
-~/.hermes/scripts/hermes-patches.sh check
-./scripts/hermes-mattermost-enhancer.sh check
-```
-
-如果升级后审批退化成普通 `/approve` 文字、没有 DM 卡片，检查 Enhancer 是否已加载，并确认 `MattermostApprovalAdapter.supports_exec_approval_buttons()` 仍返回 `True`。Hermes v0.21.3 起会先用这个能力声明决定是否调用卡片发送逻辑。
-
-**Q: 脚本会不会搞坏我的 Hermes？**
-
-A: 不会。它只做了最小改动，你可以用 `check` 随时查看状态。如果想还原，重新安装 Hermes 即可。
-
-**Q: 我不想装脚本，有什么影响？**
-
-A: 以下 Bug 得不到修复（上面标注「Shell Patch」的 #8、#10）：
-- Clarify 会话分裂：新的消息可能被当成新对话（AI 失忆）
-- Gateway 重启后同频道多 Thread session 互相串台
-
-其他问题（#7 进度进 Thread、#9 并发守护）上游已修复，无需脚本；Adapter 覆写的 #1-6 功能不受影响。
-
-**Q: 为什么 `apply` 完没有自动重启？**
-
-A: 这是有意设计。Hermes 的安全钩子会拒绝从 gateway 进程内部发起的重启，旧版脚本内嵌重启调用后，导致在 gateway 会话里连 `check` 都无法执行。新版脚本只打补丁 + 打印提示，请在外部终端手动重启。
+**Q: 升级 Hermes Agent 后，需要重新配置吗？**
+- 插件的配置与环境变量永久保留。升级后建议在插件目录运行一次 `./scripts/hermes-mattermost-enhancer.sh check` 确认系统适配状态即可。
 
 ---
 
 ## 📁 项目结构
 
-```
+```text
 mattermost-enhancer/
-├── plugin.yaml              # 插件元数据
-├── __init__.py              # 插件入口
-├── adapter.py               # 核心逻辑（50+ 个方法）
-├── cards.py                 # 交互卡片模板
-├── models.py                # 模型列表与 provider 解析
-├── session_actions.py       # 模型切换 / 会话重置（可独立测试）
-├── branching.py             # 消息级分支（🆕 表情触发，可独立测试）
-├── callback_server.py       # 回调服务器环境检查
+├── plugin.yaml              # 插件元信息与平台声明
+├── __init__.py              # 插件入口与平台注册逻辑
+├── adapter.py               # 核心适配逻辑与消息处理
+├── cards.py                 # 交互卡片渲染模板
+├── models.py                # 可用模型列表解析与匹配
+├── session_actions.py       # 模型切换与会话重置执行
+├── branching.py             # 消息级分支（🆕 表情触发处理）
+├── callback_server.py       # 独立回调服务健康自检
 ├── scripts/
-│   └── hermes-mattermost-enhancer.sh   # 配套 Shell 脚本（Mattermost Gateway 补丁）
-├── references/
-│   └── api-contracts.md     # Mattermost API 契约文档
-├── README.md                # 英文文档
-├── README.zh-CN.md          # 本文档
-└── LICENSE                  # MIT
+│   └── hermes-mattermost-enhancer.sh   # 配套补充适配脚本
+├── tests/                   # 完整自动化回归测试套件
+├── README.md                # 英文说明文档
+├── README.zh-CN.md          # 中文说明文档
+└── LICENSE                  # MIT 开源许可
 ```
 
 ---
-
-> 💡 **Docker 自部署小贴士** — 如果你用 Docker 跑 Mattermost，这几点可以帮你少踩坑：
->
-> - **消息不实时渲染？** 把 `config.json` 里的 `AllowCorsFrom` 设为 `http://127.0.0.1:8065`，重启容器。浏览器 WebSocket 被 CORS 拦截了。
-> - **`/model` 没反应？** Slash 指令的 Request URL 必须指向 `http://host.docker.internal:18065/mm-command`；按钮卡片回调才用 `MATTERMOST_CALLBACK_URL`，并以 `/mattermost/callback` 结尾。容器里的 `127.0.0.1` 是容器自己，不是宿主机。
-> - **图片裂了？** `SiteURL` 要与浏览器地址栏的 URL 一致。本地用 `127.0.0.1`，远程用域名，不要混搭。
-> - **偶尔断连？** 容器内存给到 2GB 以上，`docker stats mm-app` 可以看当前用量。
 
 ## 📄 许可
 
