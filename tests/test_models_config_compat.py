@@ -38,7 +38,7 @@ def test_v12_providers_dict_format():
         "providers": {
             "cpa": {
                 "base_url": "http://127.0.0.1:8317/v1",
-                "api_key": "${CPA_API_KEY}",
+                "api_key": "${TEST_CPA_API_KEY}",
                 "api_mode": "chat_completions",
                 "models": {
                     "GPT-6-Luna": {"name": "GPT-6 Luna"},
@@ -49,7 +49,7 @@ def test_v12_providers_dict_format():
         },
         "model": {"default": "GPT-6.1-Sol", "provider": "cpa"},
     }
-    models = _import_fresh_models(mock_config, env_vars={"CPA_API_KEY": "test-key-123"})
+    models = _import_fresh_models(mock_config, env_vars={"TEST_CPA_API_KEY": "test-key-123"})
 
     # 1. Available models list
     available = models.get_available_models()

@@ -192,6 +192,26 @@ Gray monospace footnote — subtle, glanceable. **Especially useful with multipl
 >
 > If you're using Hermes CLI (not Gateway), you can also toggle it with `/footer on`.
 
+### 🌿 9. Fork Conversations from Any Message (🆕 Reaction Branching)
+
+**Role:** Similar to CodeX or Hermes Desktop's "Branch from message" feature. Allows you to fork an independent parallel conversation line from any historical node during a long discussion to explore alternative approaches or rephrase questions, without discarding your current conversation progress.
+
+**Pain Point & Improvement:**
+- **Pain Point:** You're 10 turns into exploring a solution or debugging and realize you'd like to return to turn 3 and ask differently. In Mattermost, running `/new` wipes all previous context completely; using native `/branch` clones the **entire history** indiscriminately and hijacks the current Thread's binding, leaving no way back to the original line of thought 💀
+- **Improvement:** Simply add a 🆕 (`:new:`) emoji reaction to the target message. Hermes automatically creates a **brand-new sibling Thread** in the current channel, seamlessly copying history up to that cut point. The original Thread remains completely intact, allowing both threads to explore in parallel without interference.
+
+#### Branch Inheritance Rules
+
+| Reacted Message | Inherited History | New Thread Root Post | Typical Scenario |
+| :--- | :--- | :--- | :--- |
+| **Your Prompt** | Everything **before** that prompt (excluding the prompt itself) | Quotes your original prompt text (with permalink back to origin) | "Let me rephrase this question" or tweak parameters and re-send directly in the new thread |
+| **Hermes' Reply** | The **complete turn** up to that reply (including associated tool calls and results) | Displays "Inherited from original message (N turns kept)" with permalink | "Great solution; let's explore a different direction from here" |
+
+#### Key Mechanics & Benefits
+- **Atomic Tool Call Closure:** Cleanly segmented by turn boundaries. Even if the reacted reply executed multiple external tools, all tool calls and their results are cloned together as complete pairs, preventing orphaned context errors.
+- **Seamless Settings Inheritance:** The new branch automatically inherits the current Thread's active AI model and reasoning-effort (Reasoning Effort) configuration.
+- **Universal Mobile & Desktop Support:** Uses native Mattermost emoji reactions. Works instantly on iOS, Android, macOS desktop, and Web browsers **without installing any Mattermost server webapp plugins**.
+
 ---
 
 ---
@@ -466,11 +486,48 @@ Once enabled, every Hermes reply ends with a footer showing the current model an
 
 Want to turn it off? Set `display.runtime_footer.enabled` to `false` in `config.yaml` and restart.
 
+### Branching from Any Message (🆕 Reaction)
+
+This is semi-automated — triggered simply by reacting with an emoji, without needing to type any slash commands.
+
+#### 1. How to Use (Step-by-Step)
+1. **Locate Target Node**: In a Thread, find any message you want to branch from (either your own prompt or a Hermes reply).
+2. **Add Trigger Emoji**:
+   - **Desktop / Web**: Hover over the message, click the "Add Reaction" icon in the action bar, type `new`, and select 🆕.
+   - **Mobile (iOS / Android)**: Long-press the target message, open the reaction menu, and select or search for 🆕.
+3. **Confirm Receipt**: Once received, Hermes automatically adds a ✅ reaction to the message you clicked, indicating the new branch is ready.
+4. **Continue Exploring in New Branch**: Look for the newly posted root message in the channel's main timeline. Open that new Thread and reply directly. The original Thread's progress remains intact.
+
+#### 2. Limitations & Boundary Conditions
+1. **No Branching Mid-Run**: If Hermes is currently thinking, executing tools, or streaming a reply in the Thread, reacting with 🆕 will be rejected with an in-thread notification. Wait until the current turn finishes before branching to avoid copying an incomplete state.
+2. **Compressed Historical Messages**: When a conversation is very long and has triggered Hermes' automatic context compression, individual messages that were already summarized away cannot be isolated. The bot will report that the cut point could not be found.
+3. **Authorization Gating**: Only users listed in `MATTERMOST_ALLOWED_USERS` (or authorized by Gateway policy) can trigger branching. Reactions from unauthorized channel members are silently ignored.
+4. **Duplicate Click Protection**: The same message can only be branched once every 30 seconds to prevent duplicates from rapid clicks or WebSocket re-deliveries.
+5. **Channel-Level Flat Posts**: In channel-level mode without threads, all messages belong to the flat stream. Threaded mode is recommended for clean multi-branch navigation.
+
+#### 3. Customizing the Trigger Emoji or Disabling
+The default trigger emoji is `new` (🆕). To change the trigger emoji or turn off the feature, configure `~/.hermes/.env`:
+
+```dotenv
+# Optional: emoji name(s) without colons, comma-separated.
+# Set to "off", "false", or "0" to disable message branching.
+MATTERMOST_BRANCH_EMOJI=new,twisted_rightwards_arrows
+```
+Restart the Gateway from an external terminal after updating the configuration.
+
 ---
 
 ---
 
 ## ❓ FAQ
+
+**Q: Why doesn't reacting with 🆕 create a new branch?**
+
+A: Check the following:
+1. **Agent Running**: Hermes might currently be thinking or replying in that Thread — wait until the response completes;
+2. **User Authorization**: Ensure your Mattermost username or user ID is listed in `MATTERMOST_ALLOWED_USERS`;
+3. **Feature Disabled**: Check whether `MATTERMOST_BRANCH_EMOJI=off` is set in `~/.hermes/.env`, or the emoji name is misspelled;
+4. **Gateway Restart**: The feature requires restarting the Gateway process after pulling the update.
 
 **Q: Do I need to install the plugin and both scripts?**
 
@@ -514,6 +571,7 @@ mattermost-enhancer/
 ├── cards.py                 # Interactive card templates
 ├── models.py                # Model list and provider resolution
 ├── session_actions.py       # Model switching / session reset (independently testable)
+├── branching.py             # Message-level conversation branching (🆕 reaction trigger, independently testable)
 ├── callback_server.py       # Callback server environment check
 ├── scripts/
 │   └── hermes-mattermost-enhancer.sh   # Companion shell script (Mattermost Gateway patches)

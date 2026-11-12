@@ -116,6 +116,12 @@ class MattermostApprovalAdapter(MattermostAdapter):
         # 修复多用户频道下审批误发给管理员（members 反查只能取第一个非 bot 成员）。
         self._last_sender_by_channel: Dict[str, str] = {}
         self._last_sender_by_thread: Dict[Tuple[str, str], str] = {}
+        # 消息级分支（表情触发）：触发表情集合 + 并发/重复保护 + 后台任务强引用
+        from .branching import parse_branch_emojis
+        self._branch_emojis = parse_branch_emojis(os.getenv("MATTERMOST_BRANCH_EMOJI"))
+        self._branch_inflight: set = set()
+        self._branch_done: Dict[str, float] = {}
+        self._branch_tasks: set = set()
 
     # ══════════════════════════════════════════════════════════════════════
     # 公共辅助方法
@@ -1607,6 +1613,99 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
     # ══════════════════════════════════════════════════════════════════════
     # 生命周期覆写（启动/停止回调服务器）
+    # ══════════════════════════════════════════════════════════════════════
+    # 消息级分支 — 对任意消息添加 :new: 表情，从该处开出新分支对话
+    # ══════════════════════════════════════════════════════════════════════
+
+    async def _handle_ws_event(self, event: dict) -> None:
+        """拦截 reaction_added；其余事件交回上游处理（MRO 链保持不变）。"""
+        if event.get("event") == "reaction_added" and self._branch_emojis:
+            self._dispatch_branch_reaction(event)
+            return
+        await super()._handle_ws_event(event)
+
+    def _dispatch_branch_reaction(self, event: dict) -> None:
+        """同步解析事件并后台调度，避免阻塞 WebSocket 读循环。"""
+        try:
+            reaction = json.loads((event.get("data") or {}).get("reaction") or "")
+        except (json.JSONDecodeError, TypeError):
+            return
+        emoji = str(reaction.get("emoji_name", "")).lower()
+        user_id = reaction.get("user_id", "")
+        post_id = reaction.get("post_id", "")
+        if emoji not in self._branch_emojis or not user_id or not post_id:
+            return
+        if user_id == self._bot_user_id:  # 机器人自己加的 ✅ 等表情不触发
+            return
+        channel_id = (event.get("broadcast") or {}).get("channel_id", "")
+        task = asyncio.get_running_loop().create_task(
+            self._run_branch_from_reaction(post_id, user_id, channel_id, emoji)
+        )
+        self._branch_tasks.add(task)
+        task.add_done_callback(self._branch_tasks.discard)
+
+    async def _run_branch_from_reaction(
+        self, post_id: str, user_id: str, channel_id: str, emoji: str,
+    ) -> None:
+        import time as _time
+
+        # 重复保护：同一条消息短时间内只分支一次（重复点击/WS 重投递）
+        now = _time.time()
+        self._branch_done = {k: t for k, t in self._branch_done.items() if now - t < 30}
+        if post_id in self._branch_inflight or post_id in self._branch_done:
+            return
+        self._branch_inflight.add(post_id)
+        post: Dict[str, Any] = {}
+        try:
+            if not await self._branch_user_allowed(user_id, channel_id):
+                logger.warning("Branch reaction ignored: user %s not authorized", user_id)
+                return
+            post = await self._api_get(f"posts/{post_id}") or {}
+            from .branching import BranchError, branch_from_post
+
+            try:
+                result = await branch_from_post(self, post_id=post_id, user_id=user_id)
+            except BranchError as exc:
+                await self._branch_notify(post, f"⑂ 无法创建分支：{exc}")
+                return
+            self._branch_done[post_id] = _time.time()
+            # 完成回执：机器人给触发消息补一个 ✅（用户自己的 :new: 无权移除，保留即可）
+            await self._api_post("reactions", {
+                "user_id": self._bot_user_id, "post_id": post_id,
+                "emoji_name": "white_check_mark", "create_at": int(_time.time() * 1000),
+            })
+            logger.info("Branch via :%s: → session %s", emoji, result.get("session_id"))
+        except Exception as exc:
+            logger.error("Branch from reaction failed (post=%s): %s", post_id, exc, exc_info=True)
+            await self._branch_notify(post, "⑂ 创建分支时出现内部错误，详见 Gateway 日志")
+        finally:
+            self._branch_inflight.discard(post_id)
+
+    async def _branch_user_allowed(self, user_id: str, channel_id: str) -> bool:
+        """沿用 Gateway 授权：MATTERMOST_ALLOWED_USERS / allow-all / 配对 —— 与发消息同一把尺。"""
+        allowed = self._get_allowed_users()
+        if allowed:
+            return user_id in allowed
+        try:
+            from gateway.run import _gateway_runner_ref
+
+            runner = _gateway_runner_ref()
+            if runner is None:
+                return False
+            source = self.build_source(chat_id=channel_id, chat_type="channel", user_id=user_id)
+            return bool(runner._is_user_authorized_for_source(source))
+        except Exception:
+            logger.debug("branch authz check failed", exc_info=True)
+            return False
+
+    async def _branch_notify(self, post: Dict[str, Any], text: str) -> None:
+        """失败提示：回复在触发消息所在的串里（不另开帖，避免污染频道）。"""
+        if not post.get("channel_id"):
+            return
+        payload: Dict[str, Any] = {"channel_id": post["channel_id"], "message": text,
+                                   "root_id": post.get("root_id") or post.get("id", "")}
+        await self._api_post("posts", payload)
+
     # ══════════════════════════════════════════════════════════════════════
     # WebSocket 覆写 — 心跳优化 30s→15s（替代 P6 shell patch）
     # ══════════════════════════════════════════════════════════════════════
