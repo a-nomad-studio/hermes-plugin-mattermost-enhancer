@@ -188,6 +188,17 @@ def resolve_gateway_approval(session_key, choice, resolve_all=False, reason=None
 
 
 approval_mod.resolve_gateway_approval = resolve_gateway_approval
+
+
+def resolve_gateway_approval_card(session_key, choice, request_id, *, actor_id=None,
+                                  admin_ids=(), extra=None):
+    """Card-aware resolver stub: request_id is mandatory, like the real one."""
+    if not request_id:
+        return 0
+    return resolve_gateway_approval(session_key, choice, request_id=request_id)
+
+
+approval_mod.resolve_gateway_approval_card = resolve_gateway_approval_card
 sys.modules["tools.approval"] = approval_mod
 approval_wait_mod = types_mod.ModuleType("tools.approval_gateway_wait")
 approval_wait_mod._ApprovalEntry = _ApprovalEntry

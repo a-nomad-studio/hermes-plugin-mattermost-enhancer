@@ -75,22 +75,34 @@ def test_platform_registration_keeps_bundled_adapter_contract():
     ), "pass the bundled AUTHZ mapping so new authorization fields are not silently lost"
 
 
-def test_dm_approval_cards_are_explicitly_advertised():
+def test_dm_approval_cards_use_the_upstream_capability_hook():
+    """Card capability must come from overriding the upstream prompt hook.
+
+    ``BasePlatformAdapter.supports_exec_approval_buttons()`` is True exactly when a
+    subclass overrides ``_send_exec_approval_prompt``. Keeping (or re-introducing) a
+    hardcoded ``return True`` override decouples the plugin from that probe, and a full
+    ``send_exec_approval`` override bypasses the upstream Deny-only guard entirely.
+    """
     tree = ast.parse((ROOT / "adapter.py").read_text(encoding="utf-8"))
     adapter = _class(tree, "MattermostApprovalAdapter")
-    method = _method(adapter, "supports_exec_approval_buttons")
-    assert any(
-        isinstance(node, ast.Return) and isinstance(node.value, ast.Constant) and node.value.value is True
-        for node in ast.walk(method)
+    _method(adapter, "_send_exec_approval_prompt")  # raises when the hook disappears
+    own_methods = {
+        node.name
+        for node in adapter.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert "send_exec_approval" not in own_methods, (
+        "override _send_exec_approval_prompt, not send_exec_approval — the full override "
+        "skips card_shows_whole_command(), so a truncated command could be approved"
     )
 
 
 def test_exec_approval_cards_are_bound_to_the_request_that_created_them():
     tree = ast.parse((ROOT / "adapter.py").read_text(encoding="utf-8"))
     adapter = _class(tree, "MattermostApprovalAdapter")
-    sender = _method(adapter, "send_exec_approval")
+    sender = _method(adapter, "_send_exec_approval_prompt")
     signature_names = {arg.arg for arg in sender.args.args + sender.args.kwonlyargs}
-    assert "request_id" in signature_names
+    assert "prompt" in signature_names
 
     action_contexts = []
     for node in ast.walk(sender):
@@ -102,22 +114,24 @@ def test_exec_approval_cards_are_bound_to_the_request_that_created_them():
         }
         if "action" in keys and "session_key" in keys:
             action_contexts.append(keys)
-    assert len(action_contexts) == 4, "all four approval/deny buttons must carry callback context"
+    assert action_contexts, "approval buttons must carry callback context"
     assert all("request_id" in keys for keys in action_contexts)
 
     callback = _method(adapter, "_handle_callback")
-    resolver_calls = [
+    card_calls = [
         node for node in ast.walk(callback)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "resolve_gateway_approval"
+        and node.func.id == "resolve_gateway_approval_card"
     ]
-    assert len(resolver_calls) == 1
-    assert any(keyword.arg == "request_id" for keyword in resolver_calls[0].keywords)
-    assert isinstance(resolver_calls[0].func, ast.Name)
-    assert resolver_calls[0].func.id == "resolve_gateway_approval"
+    assert len(card_calls) == 1, "the card path must resolve through the card-aware resolver"
+    assert len(card_calls[0].args) >= 3, "resolve_gateway_approval_card(session_key, choice, request_id, ...)"
+    assert any(keyword.arg == "actor_id" for keyword in card_calls[0].keywords), (
+        "passing actor_id makes the resolver check the clicker's authority in the same "
+        "critical section as the Deny-only gate"
+    )
     callback_source = ast.unparse(callback)
-    assert "if request_id else 0" in callback_source, "missing request IDs must fail closed, not fall back to FIFO"
+    assert "if request_id" in callback_source, "missing request IDs must fail closed, not fall back to FIFO"
 
 
 def test_model_switch_writes_through_for_gateway_restart_rehydration():

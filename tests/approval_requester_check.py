@@ -119,6 +119,7 @@ sys.modules["tools"] = tools_pkg
 approval_mod = types_mod.ModuleType("tools.approval")
 approval_mod._gateway_queues = {}
 approval_mod.resolve_gateway_approval = lambda *args, **kwargs: 0
+approval_mod.resolve_gateway_approval_card = lambda *args, **kwargs: 0
 sys.modules["tools.approval"] = approval_mod
 
 import importlib.util
@@ -160,11 +161,41 @@ def check(name, cond, detail=""):
         print(f"  ❌ {name} {detail}")
 
 
+class _Prompt:
+    """Duck-typed stand-in for gateway.platforms.base.ExecApprovalPrompt.
+
+    The hook only reads chat_id / session_key / metadata / command / description /
+    request_id / text / actions, and the four approval actions are what the real
+    base class would render for a fresh dangerous command.
+    """
+
+    def __init__(self, *, chat_id, session_key, metadata, command, description, request_id):
+        self.chat_id = chat_id
+        self.session_key = session_key
+        self.metadata = metadata
+        self.command = command
+        self.description = description
+        self.request_id = request_id
+        self.text = f"```\n{command}\n```\n**Reason:** {description}"
+        self.actions = [
+            ("Allow Once", "once", "primary"),
+            ("Allow Session", "session", ""),
+            ("Always Allow", "always", ""),
+            ("Deny", "deny", "danger"),
+        ]
+
+
 async def main():
     cfg = MagicMock()
     cfg.extra = {}
     ad = MattermostApprovalAdapter(cfg)
-    check("DM approval card capability is advertised", ad.supports_exec_approval_buttons() is True)
+    # 能力声明来自「覆写 _send_exec_approval_prompt」——上游
+    # BasePlatformAdapter.supports_exec_approval_buttons() 正是按此判定。
+    check(
+        "DM approval card capability is advertised (prompt hook overridden)",
+        type(ad)._send_exec_approval_prompt
+        is not getattr(type(ad).__mro__[-2], "_send_exec_approval_prompt", None),
+    )
     # 阻断真实网络：直接给 send( ) 打桩，避免审批后回执发消息
     ad.send = AsyncMock(return_value=SendResult(success=True, message_id="x"))
 
@@ -187,7 +218,7 @@ async def main():
     uid2 = ad._resolve_approval_requester("multi", {})
     check("channel 回退返回 user1（而非 admin）", uid2 == "user1", f"got {uid2}")
 
-    print("\n── 3. send_exec_approval 多用户频道不再误发管理员 ──")
+    print("\n── 3. _send_exec_approval_prompt 多用户频道不再误发管理员 ──")
     # 记录 admin 是频道里"第一个"非 bot 成员（members 反查的坑）
     # 但发起者是 user1。构造：admin 的 DM channel 也被记录过（模拟历史 DM）
     captured_dm = {}
@@ -205,14 +236,15 @@ async def main():
 
     ad._api_post = _capture_api_post
 
-    result = await ad.send_exec_approval(
-        chat_id="multi",
-        command="rm -rf /tmp/x",
-        session_key="agent:main:mattermost:channel:multi",
-        description="dangerous",
-        metadata={"thread_id": "t1"},
-        user_id=None,  # 模拟 gateway 未传 user_id
-        request_id="request-bound-approval",
+    result = await ad._send_exec_approval_prompt(
+        _Prompt(
+            chat_id="multi",
+            session_key="agent:main:mattermost:channel:multi",
+            metadata={"thread_id": "t1"},
+            command="rm -rf /tmp/x",
+            description="dangerous",
+            request_id="request-bound-approval",
+        )
     )
     check("审批发送成功", result.success, f"got {result}")
     check(
@@ -229,13 +261,15 @@ async def main():
     print("\n── 4. DM 场景仍正确（无 thread、单用户）──")
     ad.build_source(chat_id="dm1", user_id="alice", thread_id=None)
     captured_dm.clear()
-    await ad.send_exec_approval(
-        chat_id="dm1",
-        command="ls",
-        session_key="agent:main:mattermost:dm:dm1",
-        description="x",
-        metadata=None,
-        user_id=None,
+    await ad._send_exec_approval_prompt(
+        _Prompt(
+            chat_id="dm1",
+            session_key="agent:main:mattermost:dm:dm1",
+            metadata=None,
+            command="ls",
+            description="x",
+            request_id="request-dm",
+        )
     )
     check("DM 场景发给 alice", captured_dm.get("user_id") == "alice", f"got {captured_dm.get('user_id')}")
 

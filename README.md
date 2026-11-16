@@ -45,6 +45,8 @@ This plugin bridges Hermes with Mattermost's native capabilities, delivering a f
   - **Always Allow** (permanently whitelist this command)
   - **Deny** (reject execution)
 
+> 🧾 **No approving what you cannot read:** for an oversized command, Hermes first sends the full command as its own message; if it still cannot be shown whole, the card offers **Deny only** — so you never approve a command you could not read.
+
 ![Approval card effect](images/approve.webp)
 
 > 🔒 **Precise Requester Routing:** Even in busy multi-user channels, the approval card is routed specifically to the actual requester's DM — never spamming the channel or mistakenly pinging admins.

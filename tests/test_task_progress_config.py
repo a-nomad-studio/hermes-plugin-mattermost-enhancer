@@ -76,6 +76,7 @@ tools_pkg.__path__ = []
 sys.modules.setdefault("tools", tools_pkg)
 approval_mod = types_mod.ModuleType("tools.approval")
 approval_mod.resolve_gateway_approval = lambda *args, **kwargs: 0
+approval_mod.resolve_gateway_approval_card = lambda *args, **kwargs: 0
 sys.modules.setdefault("tools.approval", approval_mod)
 
 # Import adapter and __init__

@@ -30,7 +30,7 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 from gateway.platforms.base import SendResult
-from tools.approval import resolve_gateway_approval
+from tools.approval import resolve_gateway_approval, resolve_gateway_approval_card
 
 # Hermes loads the bundled Mattermost platform package before this plugin, so
 # use its canonical Python package path. Tests that run outside Hermes stub
@@ -80,19 +80,15 @@ class MattermostApprovalAdapter(MattermostAdapter):
     # 插件历史上曾用 MAX_MESSAGE_LENGTH = MAX_POST_LENGTH 修正 4096 > 4000
     # 的截断差，现已由父类统一提供，不再重复定义。
 
-    @classmethod
-    def supports_exec_approval_buttons(cls) -> bool:
-        """Advertise the enhancer's DM approval cards to the v0.21.3 capability gate.
+    # MM 单帖上限 4000（MAX_POST_LENGTH）。审批卡片正文含命令预览 + 原因 +
+    # 截止时间行，把整卡预算锚在此处，上游 exec_approval_cmd_budget() 才能
+    # 按真实上限裁剪预览并正确判定「命令是否被完整展示」。
+    _EA_CARD_CAP = 3800
 
-        Hermes now asks ``BasePlatformAdapter`` subclasses this class-level
-        question before calling ``send_exec_approval``.  The base implementation
-        only recognises adapters overriding its newer private template hook;
-        this enhancer intentionally owns the public method because it must first
-        resolve the Mattermost requester and route the card to a DM.  Without
-        this explicit capability declaration the gateway silently chooses the
-        plain-text ``/approve`` fallback and no DM card is sent.
-        """
-        return True
+    # supports_exec_approval_buttons 由上游基类按「是否覆写了
+    # _send_exec_approval_prompt」自动判定（BasePlatformAdapter::
+    # supports_exec_approval_buttons），本类覆写了该钩子 → 自动为 True。
+    # 不要再写恒 True 的覆写：那会与上游探测规则脱钩。
 
     def __init__(self, config):
         super().__init__(config)
@@ -1039,11 +1035,16 @@ class MattermostApprovalAdapter(MattermostAdapter):
         if allowed_users and user_id not in allowed_users:
             return {"ephemeral_text": "Unauthorized"}
 
+        # 新卡片直接使用上游 choice 词表（once/session/always/deny）；
+        # 保留旧拼写映射，因为投递到历史 DM 里的老卡片仍可能被点击。
         choice_map = {
+            "once": "once",
+            "session": "session",
+            "always": "always",
+            "deny": "deny",
             "approve_once": "once",
             "approve_session": "session",
             "approve_always": "always",
-            "deny": "deny",
         }
         choice = choice_map.get(action)
         if not choice:
@@ -1059,10 +1060,29 @@ class MattermostApprovalAdapter(MattermostAdapter):
         # Cards created before request IDs were attached fail closed. Falling
         # back to FIFO would let an old/stale card approve a newer command.
         request_id = context.get("request_id")
-        count = (
-            resolve_gateway_approval(session_key, choice, request_id=request_id)
-            if request_id else 0
-        )
+        # v0.23.1 起所有内置适配器统一走 resolve_gateway_approval_card：
+        # 它把「Deny-only 闸门 + 点击者授权（gateway.approval_actor.may_answer）
+        # + settle」放在同一个临界区里。旧的 resolve_gateway_approval 只按
+        # request_id 结算，既不认 Deny-only 也不校验点击者身份。
+        if request_id:
+            try:
+                count = resolve_gateway_approval_card(
+                    session_key,
+                    choice,
+                    request_id,
+                    actor_id=user_id,
+                    extra=getattr(self.config, "extra", None),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Mattermost: approval card resolve failed (%s); falling back to"
+                    " request-scoped resolve", exc,
+                )
+                count = resolve_gateway_approval(
+                    session_key, choice, request_id=request_id,
+                )
+        else:
+            count = 0
         if count == 0:
             # 审批已被处理（重复点击）— 仍然返回 update 清空卡片按钮
             # 防止用户继续点击看到 "No pending approval found" 错误
@@ -1379,42 +1399,31 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
     # ── DM 审批发送 ──
 
-    async def send_exec_approval(
-        self,
-        chat_id: str,
-        command: str,
-        session_key: str,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        allow_permanent: bool = True,
-        allow_session: bool = True,
-        smart_denied: bool = False,
-        request_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> SendResult:
-        """发送按钮式审批提示到用户 DM.
+    async def _send_exec_approval_prompt(self, prompt) -> SendResult:
+        """审批卡片：把上游渲染好的 prompt 投递到发起人 DM。
 
-        Bot API 创建的帖子 integration 字段虽被 API 响应剥离，
-        但数据库中完整保留，MM 服务端处理按钮点击时从 DB 读取，
-        因此 Bot API + DM 方式可正常触发回调。
+        v0.23.1 起上游把审批收敛为「共享渲染 + ``_send_exec_approval_prompt``
+        钩子」：卡片正文（命令预览 / 原因 / 截止时间行）、按钮集合
+        （once / session / always / deny）以及「命令未能完整展示时只保留 Deny」
+        的安全闸门，全部由 ``BasePlatformAdapter.send_exec_approval`` 完成。
+        插件只保留 MM 侧的投递差异 —— 定位发起人、开 DM、渲染 interactive
+        attachment。
 
-        Args:
-            allow_permanent: True → 显示 "Always Allow" 永久授权按钮
-            allow_session: True → 显示 "Allow Session" 按钮
-            smart_denied: True → 追加 owner override 提示（仅本次生效）
+        历史教训：本类曾整体覆写 ``send_exec_approval`` 自己拼卡片，v0.23.1 的
+        ``card_shows_whole_command`` 闸门因此被绕过 —— 用户可能在命令被截断成
+        ``<前 3800 字>...`` 的状态下就点了 Allow。钩子化后该行为自动跟上上游。
         """
-        if description is None:
-            description = "dangerous command"
-        if smart_denied:
-            description += "（Owner override，仅本次生效）"
+        chat_id = prompt.chat_id
+        session_key = prompt.session_key
+        metadata = prompt.metadata
+        command = prompt.command
+        description = prompt.description
+        request_id = prompt.request_id
+
+        # 精准定位发起者：先用 build_source 记录的最近发言人。多用户频道下
+        # members 反查会误发管理员，只有追踪未命中时才回退到旧逻辑。
+        user_id = self._resolve_approval_requester(chat_id, metadata)
         if not user_id:
-            # 精准定位发起者：先用 build_source 记录的最近发言信息。
-            # 多用户频道（public/group）下 members 反查会误发管理员，
-            # 只有追踪未命中时才回退到旧逻辑。
-            user_id = self._resolve_approval_requester(chat_id, metadata)
-        if not user_id:
-            # 兜底：反查 DM channel members（仅 DM 场景可靠；追踪命中的正常
-            # 路径不会走到这里）。
             user_id = await self._get_user_id_from_channel(chat_id)
         if not user_id:
             return SendResult(
@@ -1431,25 +1440,19 @@ class MattermostApprovalAdapter(MattermostAdapter):
                     error="Failed to create DM channel",
                 )
 
-            # 2. 构建 callback URL
+            # 2. 按钮直接映射上游给的 (label, choice, style)；choice 词表与
+            #    tools.approval.resolve_gateway_approval 一致。
             callback_url = self._build_callback_url()
-
-            cmd_preview = (
-                command[:3800] + "..." if len(command) > 3800 else command
-            )
-
-            # 3. 构建 Interactive Message
-            # ── 基础按钮（始终显示）──
-            base_actions = [
-                {
-                    "id": "approveonce",
-                    "name": "Allow Once",
+            mm_actions: list[Dict[str, Any]] = []
+            for label, choice, style in prompt.actions:
+                button: Dict[str, Any] = {
+                    "id": f"ea_{choice}",
+                    "name": label,
                     "type": "button",
-                    "style": "primary",
                     "integration": {
                         "url": callback_url,
                         "context": {
-                            "action": "approve_once",
+                            "action": choice,
                             "session_key": session_key,
                             "command": command,
                             "reason": description,
@@ -1457,87 +1460,31 @@ class MattermostApprovalAdapter(MattermostAdapter):
                             "request_id": request_id,
                         },
                     },
-                },
-            ]
-            # ── Session 授权按钮（allow_session=True 时显示）──
-            if allow_session:
-                base_actions.append({
-                    "id": "approvesession",
-                    "name": "Allow Session",
-                    "type": "button",
-                    "integration": {
-                        "url": callback_url,
-                        "context": {
-                            "action": "approve_session",
-                            "session_key": session_key,
-                            "command": command,
-                            "reason": description,
-                            "chat_id": chat_id,
-                            "request_id": request_id,
-                        },
-                    },
-                })
-            # ── 永久授权按钮（仅 allow_permanent=True 时显示）──
-            if allow_permanent and not smart_denied:
-                base_actions.append({
-                    "id": "approvealways",
-                    "name": "Always Allow",
-                    "type": "button",
-                    "integration": {
-                        "url": callback_url,
-                        "context": {
-                            "action": "approve_always",
-                            "session_key": session_key,
-                            "command": command,
-                            "reason": description,
-                            "chat_id": chat_id,
-                            "request_id": request_id,
-                        },
-                    },
-                })
-            base_actions.append({
-                "id": "deny",
-                "name": "Deny",
-                "type": "button",
-                "style": "danger",
-                "integration": {
-                    "url": callback_url,
-                    "context": {
-                        "action": "deny",
-                        "session_key": session_key,
-                        "command": command,
-                        "reason": description,
-                        "chat_id": chat_id,
-                        "request_id": request_id,
-                    },
-                },
-            })
+                }
+                if style:
+                    button["style"] = style
+                mm_actions.append(button)
 
             attachment = {
                 "fallback": f"⚠️ 危险命令需要审批: {command[:100]}",
                 "color": "#ff9900",
-                "text": (
-                    f"```\n{cmd_preview}\n```\n"
-                    f"**Reason:** {description}\n\n"
-                    f"请点击下方按钮审批或拒绝此操作。"
-                ),
-                "actions": base_actions,
+                "text": prompt.text,
+                "actions": mm_actions,
             }
 
-            # 4. 通过 Bot API 发送到 DM（props.attachments）
+            # 3. 通过 Bot API 发送到 DM（props.attachments）
             payload = {
                 "channel_id": dm_channel_id,
                 "message": "⚠️ 危险命令需要审批",
                 "props": {"attachments": [attachment]},
             }
-
             data = await self._api_post("posts", payload)
             if not data or "id" not in data:
                 return SendResult(
                     success=False, error="Failed to send DM approval post"
                 )
 
-            # 5. 在原频道/Thread 发送简短提示（带上 metadata 确保路由到正确 Thread）
+            # 4. 在原频道/Thread 发送简短提示（带 metadata 确保路由到正确 Thread）
             await self.send(
                 chat_id,
                 "⏳ 已向您发送私信，请在 DM 中审批危险命令。",

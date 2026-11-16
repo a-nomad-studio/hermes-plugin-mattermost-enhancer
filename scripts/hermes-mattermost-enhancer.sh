@@ -40,20 +40,23 @@
 #     评论→正文合并 / 幽灵代码围栏 / stream fallback 丢失 reply_to
 #
 #   版本感知：
-#     最后验证: 2026-11-08
-#     Hermes 版本: v0.23.0（installed=2bd378ed1b，origin/main=a9ff9799e2）
+#     最后验证: 2026-11-17
+#     Hermes 版本: v0.23.1（installed=3b42157858，origin/main=c664ffdbccd）
 #     验证方式: A+B+C 三重验证（上游等价实现 / 完整 old_string / 当前源码唯一匹配）
-#     E-P2 两个锚点、E-P4 锚点均唯一匹配 origin/main 与安装树；check 签名 0 命中。
+#     E-P2 两个锚点、E-P4 锚点均唯一匹配安装树（C=1），check 签名 0 命中。
+#     E-P2/E-P4 的 old_string 在 origin/main 已断裂（上游重构），但语义修复仍未落地：
+#       E-P2 上游 get_pending_for_session(_quick_key) 依旧没有 canonical fallback；
+#       E-P4 上游把 _resume_pending_candidates 抽到
+#            gateway/run_restored_delivery.py::resume_pending_candidates，
+#            仍无 Mattermost per-channel 去重 —— 下次升级需在新宿主重写锚点。
 #     E-P3 由上游 _hm_pending_reply_intercepts 统一拦截架构覆盖，维持移除。
-#     E-P4 去重仅限 Mattermost，不影响其他平台的自动恢复。
-#     register_platform 转交 bundled AUTHZ 全量字段（含 v0.23.0 allow_bots_env）。
-#     Approval cards now carry request_id end-to-end to prevent stale-card approvals.
+#     register_platform 转交 bundled AUTHZ 全量字段（含 allow_bots_env）。
 #     Adapter imports the bundled plugin from the canonical plugins.platforms namespace.
 #
-#   已验证（v0.23.0 / origin:main=a9ff9799e2）：
-#     E-P2. run_inbound.py (Clarify Session)  — A=0、B=1+1、C=1+1
+#   已验证（v0.23.1 / origin:main=c664ffdbccd）：
+#     E-P2. run_inbound.py (Clarify Session)  — A=0、B=0（上游重构）、C=1+1
 #     E-P3. run_inbound.py (Clarify 并发)     — 上游统一拦截架构覆盖
-#     E-P4. run_startup.py (Session 串台去重) — A=0、B=1、C=1
+#     E-P4. run_startup.py (Session 串台去重) — A=0、B=0（上游抽出新模块）、C=1
 #
 #   插件侧同步审计（adapter.py，2026-10-24）：
 #     退役覆写 9 个（上游 _post_message 链已覆盖）：send_multiple_images /
@@ -65,6 +68,17 @@
 #     session_key 改用上游 build_session_key（per-user 规则对齐，见 state.db）；
 #     移除死代码 _update_bot_post（_api_put 已被上游删除）与
 #     send_model_picker（恒失败覆写会阻断上游 picker 探测）。
+#
+#   插件侧同步审计（adapter.py，2026-11-17 / Hermes v0.23.1）：
+#     审批卡片改为覆写上游钩子 _send_exec_approval_prompt，不再整体覆写
+#     send_exec_approval —— v0.23.1 新增 card_shows_whole_command 闸门
+#     （命令未能完整展示时卡片只保留「拒绝」），整体覆写会把它绕过。
+#     卡片按钮直接采用上游 (label, choice, style) 三元组（once/session/
+#     always/deny），标签随 display.language 本地化；_EA_CARD_CAP=3800
+#     让上游按 MM 单帖上限裁剪预览。
+#     回调改用 resolve_gateway_approval_card（带 actor_id）：Deny-only 检查与
+#     点击者授权在同一临界区，旧的 resolve_gateway_approval 两者都不做。
+#     supports_exec_approval_buttons 不再手工覆写，由上游按钩子是否被覆写判定。
 #
 # 使用方法：
 #   ./scripts/hermes-mattermost-enhancer.sh check   # 检查状态
