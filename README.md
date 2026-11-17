@@ -126,7 +126,22 @@ This plugin bridges Hermes with Mattermost's native capabilities, delivering a f
 
 ---
 
-### 🗜️ 8. Compress Long Conversation Context (`/compress` / `/compact`)
+### ⏹️ 8. Interrupt a Running Task (`/stop` Command)
+
+**Problem & Improvement:**
+- **Problem:** Sometimes the AI misreads the task and keeps re-reading files or retrying on the wrong path. All you can do from the chat window is watch it burn time and credits — there is no way to call it off 💀
+- **Improvement:** Type `/stop` in a thread and the running turn is interrupted immediately, the session lock is released on the spot, and history plus context stay intact — so you can simply follow up with "try another approach" ✅
+
+> 🎯 **Stop scope (important):**
+> - Sent **inside a thread**: only that conversation's task stops; other threads in the same channel are untouched;
+> - Sent at **channel level** (not attached to any thread): stops the tasks of **every** thread in that channel;
+> - Neither ever touches other channels or other platforms. To stop new work globally, use `/pause` (it blocks new work only and leaves running turns alive).
+>
+> When nothing is running, the command simply reports that there is no active task instead of leaving you waiting.
+
+---
+
+### 🗜️ 9. Compress Long Conversation Context (`/compress` / `/compact`)
 
 **Pain Point & Improvement:**
 - **Pain Point:** After dozens of turns, conversation context nears the model's window limit, degrading speed and increasing token costs.
@@ -140,7 +155,7 @@ This plugin bridges Hermes with Mattermost's native capabilities, delivering a f
 
 ---
 
-### 🏷️ 9. Model & Context Reply Footer
+### 🏷️ 10. Model & Context Reply Footer
 
 **Pain Point & Improvement:**
 - **Pain Point:** With multiple Threads open, it's easy to forget which model is running in which conversation.
@@ -160,7 +175,7 @@ This plugin bridges Hermes with Mattermost's native capabilities, delivering a f
 
 ---
 
-### ⌨️ 10. In-Thread Typing Indicator
+### ⌨️ 11. In-Thread Typing Indicator
 
 **Pain Point & Improvement:**
 - **Pain Point:** Vanilla systems post "typing..." indicators at the channel level rather than inside the Thread you're watching, making you think Hermes is stuck or frozen 😕
@@ -180,6 +195,7 @@ This plugin bridges Hermes with Mattermost's native capabilities, delivering a f
 | **Network Stability** | WebSocket frequent disconnects | Reconnect loops every ~50s causing dropped or delayed messages | Heartbeat optimized to 15s for rock-solid connection |
 | **Decision Prompting** | Plain text questions buried in stream | Critical clarify questions missed, stalling background tasks | Interactive button cards with optional custom text entry |
 | **Branching** | Inability to fork from past messages | Cannot branch alternative exploration without losing context | Native 🆕 reaction branching creates clean sibling Threads |
+| **Runaway Task** | No way to call off a misdirected long task | You watch it retry down the wrong path, burning time and credits | `/stop` interrupts at once; session and context stay usable |
 
 ---
 
@@ -208,6 +224,7 @@ In Mattermost, go to **Product menu → Integrations → Slash Commands** and ad
 | :--- | :--- | :--- |
 | `model` | Switch AI Model | `http://<Hermes-Host-IP>:18065/mm-command` |
 | `new` | Reset Conversation | `http://<Hermes-Host-IP>:18065/mm-command` |
+| `stop` | Interrupt Running Task | `http://<Hermes-Host-IP>:18065/mm-command` |
 | `reasoning` | Adjust Reasoning Effort | `http://<Hermes-Host-IP>:18065/mm-command` |
 | `compress` | Compress Conversation Context | `http://<Hermes-Host-IP>:18065/mm-command` |
 | `compact` | Compress Context (Alias) | `http://<Hermes-Host-IP>:18065/mm-command` |
@@ -235,7 +252,7 @@ MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
 # ── Slash Command Tokens (Map triggers to copied tokens) ──
-MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;reasoning=token3;compress=token4;compact=token5"
+MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;stop=token6;reasoning=token3;compress=token4;compact=token5"
 
 # ── Optional: Task Progress Display (Default: on; set off to hide tool bubbles) ──
 # MATTERMOST_TASK_PROGRESS=on
@@ -278,6 +295,10 @@ hermes gateway restart
 
 **Q: How do I hide intermediate progress bubbles during complex tasks?**
 - Set `MATTERMOST_TASK_PROGRESS=off` in `~/.hermes/.env` (or `task_progress: off` in `config.yaml` under `mattermost:`) and restart the Gateway.
+
+**Q: Typing `/stop` returns `Unknown command: /stop`?**
+- Check that the plugin is v2026.11.17-1 or newer (`/stop` support landed there), and that `stop=<its token>` is registered in `MATTERMOST_SLASH_COMMAND_TOKENS` inside `~/.hermes/.env`. Restart the Gateway after editing.
+- Worth knowing: before the slash command existed, ` /stop` (**one extra leading space**) worked too — the Mattermost client only intercepts messages that *start* with `/`, so the leading space let it through as a normal post, which the plugin then restored to a command. Once the slash command is registered, that trick is unnecessary — just type `/stop`.
 
 **Q: Do I need to reconfigure when upgrading Hermes?**
 - Configurations in `.env` and `config.yaml` persist across updates. After major Hermes upgrades, simply run `./scripts/hermes-mattermost-enhancer.sh check` to verify compatibility.

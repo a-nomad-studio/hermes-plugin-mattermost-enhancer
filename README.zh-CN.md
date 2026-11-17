@@ -126,7 +126,22 @@
 
 ---
 
-### 🗜️ 8. 就地压缩长对话历史（`/compress` / `/compact` 指令）
+### ⏹️ 8. 中断正在执行的任务（`/stop` 指令）
+
+**痛点与改善：**
+- **痛点：** 有时 AI 理解偏了方向，在错误的思路上反复读文件、反复重试，你在聊天窗口里只能干看着它烧掉时间和额度，没有任何叫停的手段 💀
+- **改善：** 在 Thread 里输入 `/stop`，正在执行的那一轮立即中断、会话锁当场释放，历史与上下文完整保留，你可以直接接着说"换个思路"继续聊 ✅
+
+> 🎯 **停止范围（重要）：**
+> - 在**某个 Thread 内**发送：只停止这条对话里的任务，同频道其他 Thread 完全不受影响；
+> - 在**频道主时间线**（不挂在任何 Thread 下）发送：停止本频道内**所有** Thread 的任务；
+> - 两者都不会影响其他频道、其他平台。想让全局不再接新任务，请用 `/pause`（它只挡新任务，不会杀掉正在跑的回合）。
+>
+> 若当前没有任务在跑，指令会直接告诉你"没有正在运行的任务"，不会白等。
+
+---
+
+### 🗜️ 9. 就地压缩长对话历史（`/compress` / `/compact` 指令）
 
 **痛点与改善：**
 - **痛点：** 某个重要任务在 Thread 里聊了数十轮，上下文快要超出模型容量上限，对话变得迟缓且费用倍增。
@@ -140,7 +155,7 @@
 
 ---
 
-### 🏷️ 9. 显示当前模型与上下文使用率（回复脚注）
+### 🏷️ 10. 显示当前模型与上下文使用率（回复脚注）
 
 **痛点与改善：**
 - **痛点：** 同时打开了多个 Thread 讨论不同事项，聊久了容易忘记当前 Thread 使用的是哪个模型。
@@ -160,7 +175,7 @@
 
 ---
 
-### ⌨️ 10. Thread 内正在输入提示（Typing 指示器）
+### ⌨️ 11. Thread 内正在输入提示（Typing 指示器）
 
 **痛点与改善：**
 - **痛点：** 原版系统的“正在输入...”提示会错误地出现在顶层频道列表中，你在 Thread 里看着界面毫无动静，误以为 AI 已经死机卡死 😕
@@ -175,6 +190,7 @@
 | 类别 | 遇到的问题 | 造成的影响 | 插件带来的改善 |
 | :--- | :--- | :--- | :--- |
 | **交互控制** | 斜杠命令被 Mattermost 拦截 | 输入 `/model`、`/new` 等指令直接报错，无法在聊天窗口控制 AI | 搭建本地独立回调通道，全套斜杠指令畅通运行 |
+| **任务失控** | 长任务跑偏后无法中途叫停 | 只能干看着 AI 在错误方向上反复重试，白耗时间与额度 | `/stop` 指令即时中断，会话与上下文保留可继续 |
 | **状态感知** | Typing 提示位置错乱 | Thread 里看不到 AI 状态，频繁误判为服务假死 | 状态指示器精确路由到当前 Thread 底部 |
 | **安全隔离** | 多用户群聊审批发错人 | 多人群聊中，普通成员触发危险命令却私信发给管理员 | 依据消息发送者精准路由审批卡片到本人私信 |
 | **网络通信** | WebSocket 频繁断线重连 | 遇到网络微小抖动即断开，导致消息吞字或卡顿 | 优化心跳探测机制至 15 秒，连接长期保持稳定 |
@@ -208,6 +224,7 @@ hermes plugins install a-nomad-studio/hermes-plugin-mattermost-enhancer --enable
 | :--- | :--- | :--- |
 | `model` | 切换 AI 模型 | `http://<Hermes主机IP>:18065/mm-command` |
 | `new` | 重置当前对话 | `http://<Hermes主机IP>:18065/mm-command` |
+| `stop` | 中断当前任务 | `http://<Hermes主机IP>:18065/mm-command` |
 | `reasoning` | 调整推理强度 | `http://<Hermes主机IP>:18065/mm-command` |
 | `compress` | 压缩对话上下文 | `http://<Hermes主机IP>:18065/mm-command` |
 | `compact` | 压缩对话上下文 (别名) | `http://<Hermes主机IP>:18065/mm-command` |
@@ -235,7 +252,7 @@ MATTERMOST_CALLBACK_URL=http://host.docker.internal:18065/mattermost/callback
 MATTERMOST_CALLBACK_SECRET=replace-with-a-long-random-secret
 
 # ── Slash 指令 Token 校验（将第 2 步复制的 Token 分号隔开填入）──
-MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;reasoning=token3;compress=token4;compact=token5"
+MATTERMOST_SLASH_COMMAND_TOKENS="model=token1;new=token2;stop=token6;reasoning=token3;compress=token4;compact=token5"
 
 # ── 可选：任务过程展示（默认 on；若需隐藏文件与搜索等执行细节可设为 off）──
 # MATTERMOST_TASK_PROGRESS=on
@@ -278,6 +295,10 @@ hermes gateway restart
 
 **Q: 想要让界面保持干净，不想看到长任务中反复弹出的中间阅读/搜索状态？**
 - 在 `~/.hermes/.env` 中添加 `MATTERMOST_TASK_PROGRESS=off`（或在 `config.yaml` 的 `mattermost:` 段添加 `task_progress: off`），重启 Gateway 即可。
+
+**Q: 输入 `/stop` 提示 `Unknown command: /stop`？**
+- 先确认插件版本 ≥ v2026.11.17-1（`/stop` 支持在该版本加入），再确认 `~/.hermes/.env` 的 `MATTERMOST_SLASH_COMMAND_TOKENS` 里登记了 `stop=<该指令的 Token>`，改完重启 Gateway。
+- 顺带说明一个"歪招"：早期没有斜杠指令时，打 ` /stop`（**前面多一个空格**）也能停任务——Mattermost 客户端只拦截以 `/` 开头的消息，加空格就变成普通消息发了出去，再被插件还原成命令交给网关。正式注册斜杠指令后不再需要这个技巧，直接打 `/stop` 即可。
 
 **Q: 升级 Hermes Agent 后，需要重新配置吗？**
 - 插件的配置与环境变量永久保留。升级后建议在插件目录运行一次 `./scripts/hermes-mattermost-enhancer.sh check` 确认系统适配状态即可。

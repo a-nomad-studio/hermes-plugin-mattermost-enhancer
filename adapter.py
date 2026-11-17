@@ -1,5 +1,5 @@
 """
-MattermostApprovalAdapter — 继承内置 MattermostAdapter，扩展 DM 审批、/model、/new 与 /reasoning。
+MattermostApprovalAdapter — 继承内置 MattermostAdapter，扩展 DM 审批、/model、/new、/stop 与 /reasoning。
 
 架构说明：
   Mattermost 拦截所有 / 开头消息，必须注册 Slash Command 才能接收。
@@ -403,7 +403,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
         路由：
           POST /mattermost/callback → 按钮回调（审批 + 模型切换 + 会话重置 + Clarify）
-          POST /mm-command          → Slash 指令（/model、/new、/reasoning、/compress、/compact）
+          POST /mm-command          → Slash 指令（/model、/new、/stop、/reasoning、/compress、/compact）
         """
         import asyncio as _asyncio
         import threading as _threading
@@ -555,7 +555,7 @@ class MattermostApprovalAdapter(MattermostAdapter):
     # ══════════════════════════════════════════════════════════════════════
 
     async def _route_slash_command(self, headers: str, body: str) -> Dict[str, Any]:
-        """处理 POST /mm-command（/model、/new、/reasoning、/compress、/compact）。
+        """处理 POST /mm-command（/model、/new、/stop、/reasoning、/compress、/compact）。
 
         关键设计：
           Slash Command 的 HTTP response 以用户身份显示 ephemeral（MM 设计限制）。
@@ -631,6 +631,20 @@ class MattermostApprovalAdapter(MattermostAdapter):
             self._schedule_followup(
                 self._handle_new_command(channel_id, user_id, root_id)
             )
+            return {}
+        elif command == "stop":
+            # /stop must reach the gateway as the native command, not as free text:
+            # only the command path runs the interrupt machinery (generation
+            # invalidation, hard kill of a hung turn, background-delegation
+            # cancellation, typing cleanup). Scope is decided upstream from the
+            # synthesized source: in-thread stops that thread, channel-level
+            # (root_id=None) stops every thread run in the channel.
+            self._schedule_followup(
+                self._handle_stop_command(channel_id, user_id, root_id)
+            )
+            # No visible slash HTTP response: MM renders it under the invoking
+            # user's avatar. The followup posts the scope-aware result as the bot,
+            # which doubles as the acknowledgement that the command ran.
             return {}
         elif command in {"compress", "compact"}:
             # /compact is a compatibility alias. Always invoke Hermes' canonical
@@ -941,6 +955,89 @@ class MattermostApprovalAdapter(MattermostAdapter):
             except Exception:
                 logger.exception(
                     "Mattermost /reasoning result delivery failed: channel=%s root_id=%s",
+                    channel_id[:8], root_id or "(channel-level)",
+                )
+
+    async def _handle_stop_command(
+        self,
+        channel_id: str,
+        user_id: str,
+        root_id: Optional[str],
+    ) -> None:
+        """Delegate Mattermost /stop to Hermes' native session-scoped stop handler.
+
+        Deliberately NOT a plugin-side interrupt: the upstream handler owns generation
+        invalidation, the pending-sentinel force-clean, the hard kill that reaches a
+        truly hung turn, background-delegation cancellation, ``/resume``-detached run
+        lookup and the stuck-typing cleanup. Reimplementing any of it here would drift
+        from upstream and could leave a session lock held.
+
+        Scope is identical to typing the command on a WebSocket platform, because the
+        synthesized ``source.thread_id`` is what the upstream resolver keys on:
+
+          * sent inside a thread (``root_id`` set) → that thread's run, plus any run
+            with no thread slot in the same channel;
+          * sent at channel level (``root_id=None`` → ``thread_id=None``) → the
+            upstream chat-wide tier, i.e. every thread's run in that channel.
+
+        NOT global: other channels and other platforms are never touched. Global
+        "stop new work" is ``/pause`` (whose in-flight turns are left running).
+        """
+        try:
+            from gateway.config import Platform
+            from gateway.platforms.event import MessageEvent
+            from gateway.run import _gateway_runner_ref
+            from gateway.session import SessionSource
+
+            runner = _gateway_runner_ref()
+            if runner is None:
+                raise RuntimeError("Gateway runner is unavailable")
+
+            chat_type = self._channel_type_cache.get(channel_id)
+            if chat_type is None:
+                try:
+                    info = await self.get_chat_info(channel_id)
+                    chat_type = info.get("type", "channel")
+                except Exception:
+                    chat_type = "channel"
+                self._channel_type_cache[channel_id] = chat_type
+
+            source = SessionSource(
+                platform=Platform.MATTERMOST,
+                chat_id=str(channel_id),
+                chat_type=chat_type,
+                user_id=user_id or None,
+                thread_id=root_id or None,
+            )
+            event = MessageEvent(
+                text="/stop",
+                source=source,
+                message_id=root_id or None,
+            )
+            async with runner._async_profile_scope_for_source(source):
+                result = await runner._handle_stop_command(event)
+        except Exception:
+            logger.exception(
+                "Mattermost /stop failed: channel=%s root_id=%s",
+                channel_id[:8], root_id or "(channel-level)",
+            )
+            result = "❌ 停止失败：Hermes Gateway 暂时无法处理此会话，请稍后重试。"
+
+        if result:
+            scope = (
+                "作用域：本对话（当前 thread）"
+                if root_id
+                else "作用域：本频道全部对话（频道顶层发送）"
+            )
+            try:
+                await self.send(
+                    channel_id,
+                    f"⏹️ {result}\n\n_{scope}_",
+                    metadata={"thread_id": root_id} if root_id else None,
+                )
+            except Exception:
+                logger.exception(
+                    "Mattermost /stop result delivery failed: channel=%s root_id=%s",
                     channel_id[:8], root_id or "(channel-level)",
                 )
 

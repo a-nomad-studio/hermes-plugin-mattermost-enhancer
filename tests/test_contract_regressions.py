@@ -186,3 +186,43 @@ def test_mattermost_reasoning_command_uses_native_gateway_handler_and_command_to
     assert "runner._async_profile_scope_for_source(source)" in handler_source
     assert "reasoning" in handler_source and "args" in handler_source
     assert "thread_id" in handler_source and "root_id" in handler_source
+
+
+def test_mattermost_stop_command_delegates_to_the_native_session_stop_handler():
+    """`/stop` must ride the gateway's command path, never a plugin-side interrupt.
+
+    Only the upstream handler invalidates the run generation, force-cleans the pending
+    sentinel, hard-kills a hung turn, cancels that session's background delegations and
+    clears a stuck typing indicator. A plugin-side reimplementation would drift and can
+    leave the session lock held, so the contract is "synthesize the event, delegate".
+    """
+    tree = ast.parse((ROOT / "adapter.py").read_text(encoding="utf-8"))
+    adapter = _class(tree, "MattermostApprovalAdapter")
+    route = _method(adapter, "_route_slash_command")
+    route_source = ast.unparse(route)
+    route_values = {
+        node.value for node in ast.walk(route)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert "stop" in route_values
+    assert "_handle_stop_command(channel_id, user_id, root_id" in route_source
+    assert "self._schedule_followup(" in route_source
+
+    handler = _method(adapter, "_handle_stop_command")
+    handler_source = ast.unparse(handler)
+    assert "runner._handle_stop_command(event)" in handler_source
+    assert "runner._async_profile_scope_for_source(source)" in handler_source
+    # The synthesized source is what decides the upstream stop scope: a thread stop
+    # must carry the thread slot, a channel-level stop must not.
+    assert "thread_id=root_id" in handler_source
+    assert "metadata={'thread_id': root_id}" in handler_source
+    assert "'/stop'" in handler_source
+
+    handler_values = {
+        node.value for node in ast.walk(handler)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    # Scope wording must distinguish the two tiers instead of claiming a global stop.
+    assert any("本对话" in value for value in handler_values)
+    assert any("本频道全部对话" in value for value in handler_values)
+    assert not any("全局" in value or "所有平台" in value for value in handler_values)
