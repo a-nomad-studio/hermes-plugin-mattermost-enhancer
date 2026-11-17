@@ -53,15 +53,25 @@ logger = logging.getLogger(__name__)
 _FALSY_VALUES = frozenset({"off", "false", "0", "no"})
 
 # ── 单帖长度上限 ──────────────────────────────────────────────────────────
-# 上游 bundled adapter 的 MAX_POST_LENGTH = 4000 是 OpenClaw 时期遗留值，而
-# Mattermost 服务端实际允许 16383 runes 每帖（model.PostMessageMaxRunesV2 =
-# 65535/4）。按 4000 切块会把一条完整回复拆成多条帖子，配合客户端 600px
-# 折叠（show_more）就是「三条消息各带一个『展开更多』」的观感。
+# 上游 bundled adapter 的 MAX_POST_LENGTH = 4000 是 OpenClaw 时期遗留值。
 #
-# 插件把预算抬到 16000（留 383 字符余量给分块器），可用
-# MATTERMOST_MAX_POST_LENGTH 覆盖，超过服务端上限时自动 clamp。
-MATTERMOST_POST_LENGTH_CEILING = 16383  # model.PostMessageMaxRunesV2
-DEFAULT_MAX_POST_LENGTH = 16000
+# 2026-11-17 对本机 Mattermost v12.1.0 做了实测（POST /api/v4/posts 逐档加长）：
+#   - 262144 runes  → 201 接受
+#   - 262145 runes  → 400 `model.post.is_valid.message_length.app_error`
+#   - >~300KB 请求体 → 413 `api.context.request_body_too_large.app_error`
+#     （config `ServiceSettings.MaximumPayloadSizeBytes: 300000`）
+# 即 v12 走 V3 通道，单帖上限是 262144，不是老文档里的 PostMessageMaxRunesV2
+# 16383（那个常量只在 `EnablePostMessageMaxRunesV3=false` 的旧实例/旧库上生效）。
+#
+# 还有第二道切分（历史上更容易被忽略）：网关的流式/最终文本分块读
+# `adapter.max_message_length_for_chat()` → `getattr(self, "MAX_MESSAGE_LENGTH", 4096)`。
+# bundled MM adapter 从来没有定义过 MAX_MESSAGE_LENGTH，于是永远回退 4096 ——
+# 这才是「预算抬到 16000 之后回复仍然在 ~4000 字符处断开」的真正原因。
+#
+# 所以插件要做两件事：抬 bundled 模块的 MAX_POST_LENGTH（send() 的切块预算），
+# 以及给适配器实例挂上 MAX_MESSAGE_LENGTH（网关切块预算）。
+MATTERMOST_POST_LENGTH_CEILING = 262144  # 实测：model.post 校验的 rune 上限
+DEFAULT_MAX_POST_LENGTH = 60000  # 覆盖现实中几乎所有回复；超出仍会自动分条
 _MIN_MAX_POST_LENGTH = 500  # 低于此值必然是配置写错，回退默认
 
 
@@ -158,12 +168,17 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
     def __init__(self, config):
         super().__init__(config)
-        # 把单帖预算注入 bundled 模块（send() 以模块全局读取 MAX_POST_LENGTH）。
+        # 把单帖预算注入两个地方：
+        #  1) bundled 模块全局 MAX_POST_LENGTH —— send() 的切块预算；
+        #  2) 实例属性 MAX_MESSAGE_LENGTH —— 网关的流式/最终文本分块读
+        #     max_message_length_for_chat() → getattr(self, "MAX_MESSAGE_LENGTH", 4096)。
+        # bundled adapter 没有这个属性，不补就永远按 4096 切（这才是主因）。
         # 放在实例化时执行，保证 /model、/new 等重建适配器后依然生效，也覆盖
         # 直接实例化（测试、cron standalone sender）的路径。
         self._max_post_length = _apply_max_post_length()
+        self.MAX_MESSAGE_LENGTH = self._max_post_length
         logger.info(
-            "Mattermost: per-post character budget = %d (server ceiling %d)",
+            "Mattermost: message budget = %d chars (per-post + gateway chunker; server ceiling %d)",
             self._max_post_length,
             MATTERMOST_POST_LENGTH_CEILING,
         )
@@ -1653,6 +1668,17 @@ class MattermostApprovalAdapter(MattermostAdapter):
     # ══════════════════════════════════════════════════════════════════════
     # 父类方法覆写（修复内置适配器的 Bug）
     # ══════════════════════════════════════════════════════════════════════
+
+    # ── 长度预算：网关切块 + 流式溢出 ────────────────────────────────────
+    # 基类 max_message_length_for_chat() 读 getattr(self, "MAX_MESSAGE_LENGTH", 4096)，
+    # bundled MM adapter 没有该属性 → 永远 4096。__init__ 已补实例属性；这两个
+    # 覆写是第二道保险（属性被改掉、或适配器被子类/Mock 包裹时也返回新预算）。
+    def max_message_length_for_chat(self, chat_id: str) -> int:
+        return getattr(self, "_max_post_length", None) or _resolve_max_post_length()
+
+    def streaming_overflow_limit(self):
+        # 让流式预览不必在 4096 处就溢出分条；返回 None 时基类按 base 处理。
+        return getattr(self, "_max_post_length", None) or _resolve_max_post_length()
 
     async def send_typing(self, chat_id: str, metadata: Optional[Dict[str, Any]] = None):
         """覆写父类：将 typing 指示器发送到正确的 Thread 内。

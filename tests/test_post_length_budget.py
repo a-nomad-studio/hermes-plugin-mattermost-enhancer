@@ -131,17 +131,17 @@ class DummyConfig:
         self.extra = extra or {}
 
 
-def test_default_budget_is_16000():
-    assert DEFAULT_MAX_POST_LENGTH == 16000
-    assert MATTERMOST_POST_LENGTH_CEILING == 16383  # model.PostMessageMaxRunesV2
-    assert _resolve_max_post_length(None) == 16000
+def test_default_budget_is_60000():
+    assert DEFAULT_MAX_POST_LENGTH == 60000
+    assert MATTERMOST_POST_LENGTH_CEILING == 262144  # measured against MM v12.1.0
+    assert _resolve_max_post_length(None) == 60000
 
 
 def test_env_override_and_clamp():
     assert _resolve_max_post_length("8000") == 8000
     assert _resolve_max_post_length(" 12000 ") == 12000
     # Above the server ceiling → clamped, never rejected
-    assert _resolve_max_post_length("99999") == MATTERMOST_POST_LENGTH_CEILING
+    assert _resolve_max_post_length("9999999") == MATTERMOST_POST_LENGTH_CEILING
     assert _resolve_max_post_length(str(MATTERMOST_POST_LENGTH_CEILING)) == MATTERMOST_POST_LENGTH_CEILING
     # Malformed / too small → default, not a crash
     assert _resolve_max_post_length("abc") == DEFAULT_MAX_POST_LENGTH
@@ -162,6 +162,22 @@ def test_adapter_instantiation_patches_bundled_module():
     adapter = adapter_mod.MattermostApprovalAdapter(DummyConfig())
     assert adapter._max_post_length == DEFAULT_MAX_POST_LENGTH
     assert bundled_mm.MAX_POST_LENGTH == DEFAULT_MAX_POST_LENGTH
+
+
+def test_adapter_sets_gateway_chunker_budget():
+    """The gateway splits replies by max_message_length_for_chat(), not by send().
+
+    bundled MattermostAdapter defines no MAX_MESSAGE_LENGTH, so the base class falls
+    back to 4096 — which is why a 4.7k reply still arrived as two posts after the
+    send() budget was raised. The enhancer must publish the budget on the instance
+    AND answer both hooks with it.
+    """
+    bundled_mm.MAX_POST_LENGTH = 4000
+    adapter = adapter_mod.MattermostApprovalAdapter(DummyConfig())
+    assert adapter.MAX_MESSAGE_LENGTH == DEFAULT_MAX_POST_LENGTH
+    assert adapter.max_message_length_for_chat("chan-1") == DEFAULT_MAX_POST_LENGTH
+    assert adapter.streaming_overflow_limit() == DEFAULT_MAX_POST_LENGTH
+
 
 
 def test_register_passes_raised_max_message_length():
