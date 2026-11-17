@@ -36,6 +36,7 @@ from tools.approval import resolve_gateway_approval, resolve_gateway_approval_ca
 # use its canonical Python package path. Tests that run outside Hermes stub
 # that package explicitly.
 from plugins.platforms.mattermost.adapter import MattermostAdapter
+import plugins.platforms.mattermost.adapter as _bundled_mattermost
 
 from .cards import (
     render_model_selector_card,
@@ -50,6 +51,71 @@ from .cards import (
 logger = logging.getLogger(__name__)
 
 _FALSY_VALUES = frozenset({"off", "false", "0", "no"})
+
+# ── 单帖长度上限 ──────────────────────────────────────────────────────────
+# 上游 bundled adapter 的 MAX_POST_LENGTH = 4000 是 OpenClaw 时期遗留值，而
+# Mattermost 服务端实际允许 16383 runes 每帖（model.PostMessageMaxRunesV2 =
+# 65535/4）。按 4000 切块会把一条完整回复拆成多条帖子，配合客户端 600px
+# 折叠（show_more）就是「三条消息各带一个『展开更多』」的观感。
+#
+# 插件把预算抬到 16000（留 383 字符余量给分块器），可用
+# MATTERMOST_MAX_POST_LENGTH 覆盖，超过服务端上限时自动 clamp。
+MATTERMOST_POST_LENGTH_CEILING = 16383  # model.PostMessageMaxRunesV2
+DEFAULT_MAX_POST_LENGTH = 16000
+_MIN_MAX_POST_LENGTH = 500  # 低于此值必然是配置写错，回退默认
+
+
+def _resolve_max_post_length(val: Any = None) -> int:
+    """Resolve the per-post character budget (env > default > clamp)."""
+    if val is None:
+        val = os.getenv("MATTERMOST_MAX_POST_LENGTH")
+    if val is None or (isinstance(val, str) and not val.strip()):
+        return DEFAULT_MAX_POST_LENGTH
+    try:
+        resolved = int(str(val).strip())
+    except (TypeError, ValueError):
+        logger.warning(
+            "Mattermost: invalid MATTERMOST_MAX_POST_LENGTH=%r — using %d",
+            val,
+            DEFAULT_MAX_POST_LENGTH,
+        )
+        return DEFAULT_MAX_POST_LENGTH
+    if resolved < _MIN_MAX_POST_LENGTH:
+        logger.warning(
+            "Mattermost: MATTERMOST_MAX_POST_LENGTH=%d is below the %d minimum — using %d",
+            resolved,
+            _MIN_MAX_POST_LENGTH,
+            DEFAULT_MAX_POST_LENGTH,
+        )
+        return DEFAULT_MAX_POST_LENGTH
+    if resolved > MATTERMOST_POST_LENGTH_CEILING:
+        logger.warning(
+            "Mattermost: MATTERMOST_MAX_POST_LENGTH=%d exceeds the server limit — clamped to %d",
+            resolved,
+            MATTERMOST_POST_LENGTH_CEILING,
+        )
+        return MATTERMOST_POST_LENGTH_CEILING
+    return resolved
+
+
+MAX_POST_LENGTH = _resolve_max_post_length()
+
+
+def _apply_max_post_length() -> int:
+    """Push the resolved budget into the bundled module.
+
+    ``MattermostAdapter.send()`` reads ``MAX_POST_LENGTH`` as a module global at
+    call time, so overriding the attribute is enough — no upstream code changes.
+    """
+    limit = _resolve_max_post_length()
+    try:
+        _bundled_mattermost.MAX_POST_LENGTH = limit
+    except Exception:  # pragma: no cover — defensive: bundled module shape drift
+        logger.warning(
+            "Mattermost: unable to override bundled MAX_POST_LENGTH; posts still split at the upstream value",
+            exc_info=True,
+        )
+    return limit
 
 
 def _resolve_task_progress_setting(val: Any) -> bool:
@@ -77,12 +143,12 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
     # 消息长度限制：上游 bundled adapter 已定义 MAX_MESSAGE_LENGTH 派生链，
     # 基类 max_message_length_for_chat() 读取该属性（不存在时回退 4096）。
-    # 插件历史上曾用 MAX_MESSAGE_LENGTH = MAX_POST_LENGTH 修正 4096 > 4000
-    # 的截断差，现已由父类统一提供，不再重复定义。
+    # 单帖预算由 _apply_max_post_length() 在实例化时注入 bundled 模块，
+    # 详见模块顶部 MATTERMOST_POST_LENGTH_CEILING 说明。
 
-    # MM 单帖上限 4000（MAX_POST_LENGTH）。审批卡片正文含命令预览 + 原因 +
-    # 截止时间行，把整卡预算锚在此处，上游 exec_approval_cmd_budget() 才能
-    # 按真实上限裁剪预览并正确判定「命令是否被完整展示」。
+    # MM 单帖上限现为 16000（见 DEFAULT_MAX_POST_LENGTH）。审批卡片正文含
+    # 命令预览 + 原因 + 截止时间行，仍把整卡预算锚在 3800 —— 卡片追求一屏
+    # 可读，与正文的长度预算无关，且 3800 < 任何合法单帖上限，保持安全。
     _EA_CARD_CAP = 3800
 
     # supports_exec_approval_buttons 由上游基类按「是否覆写了
@@ -92,6 +158,15 @@ class MattermostApprovalAdapter(MattermostAdapter):
 
     def __init__(self, config):
         super().__init__(config)
+        # 把单帖预算注入 bundled 模块（send() 以模块全局读取 MAX_POST_LENGTH）。
+        # 放在实例化时执行，保证 /model、/new 等重建适配器后依然生效，也覆盖
+        # 直接实例化（测试、cron standalone sender）的路径。
+        self._max_post_length = _apply_max_post_length()
+        logger.info(
+            "Mattermost: per-post character budget = %d (server ceiling %d)",
+            self._max_post_length,
+            MATTERMOST_POST_LENGTH_CEILING,
+        )
         self._model_picker_callbacks: Dict[str, Callable] = {}
         # Channel type 缓存: channel_id → chat_type（避免每次 /model 都调 API）
         self._channel_type_cache: Dict[str, str] = {}

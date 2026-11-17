@@ -53,6 +53,7 @@ def register(ctx):
     """Plugin entry point — called by Hermes plugin system at startup."""
     from .adapter import (
         MattermostApprovalAdapter,
+        _apply_max_post_length,
         _get_configured_task_progress,
         _resolve_task_progress_setting,
     )
@@ -70,10 +71,12 @@ def register(ctx):
         _standalone_send,
         interactive_setup,
         validate_mattermost_config,
-        MAX_POST_LENGTH,
         _PLATFORM_HINT,
     )
     from plugins.platforms.mattermost import gateway_env
+    # 单帖预算：抬高到 16000 后再注册，Gateway 的流式预览/进度/审批文本
+    # 都通过 max_message_length_for_chat() 拿同一个值，不会各自按 4000 切块。
+    max_post_length = _apply_max_post_length()
     task_progress_on = _get_configured_task_progress()
     display_overrides = {}
     if not task_progress_on:
@@ -101,7 +104,7 @@ def register(ctx):
         apply_yaml_config_fn=_apply_yaml_config_enhancer,
         cron_deliver_env_var="MATTERMOST_HOME_CHANNEL",
         standalone_sender_fn=_standalone_send,
-        max_message_length=MAX_POST_LENGTH,
+        max_message_length=max_post_length,
         emoji="💬",
         allow_update_command=True,
         platform_hint=_PLATFORM_HINT,
